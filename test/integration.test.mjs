@@ -191,9 +191,10 @@ describe('workflow: graceful degradation', () => {
 
     const input = makeToolCall('Read', { file_path: join(FIXTURES, 'large-file.js') })
     const env = {
-      GEMINI_BIN: stubGeminiBin,
-      CODEX_BIN:  '/nonexistent/codex-binary',
-      CACHE_DIR:  join(tmpdir(), `bridge-degrade-${Date.now()}`),
+      GEMINI_BIN:       stubGeminiBin,
+      CODEX_BIN:        '/nonexistent/codex-binary',
+      CACHE_DIR:        join(tmpdir(), `bridge-degrade-${Date.now()}`),
+      BRIDGE_NO_PROMPT: '1',
     }
 
     const { stdout, exitCode } = await runHook(input, env)
@@ -209,8 +210,9 @@ describe('workflow: graceful degradation', () => {
 
     const input = makeToolCall('Read', { file_path: join(FIXTURES, 'large-file.js') })
     const env = {
-      GEMINI_BIN: '/nonexistent/gemini-binary',
-      CACHE_DIR:  join(tmpdir(), `bridge-nogemini-${Date.now()}`),
+      GEMINI_BIN:       '/nonexistent/gemini-binary',
+      CACHE_DIR:        join(tmpdir(), `bridge-nogemini-${Date.now()}`),
+      BRIDGE_NO_PROMPT: '1',
     }
 
     const { stdout, exitCode } = await runHook(input, env)

@@ -18,6 +18,9 @@ import { openSync, writeSync, readSync, closeSync } from 'fs'
  * @returns {Promise<boolean>} true = user accepted degradation
  */
 export async function promptDegradation(component, detail) {
+  // Non-interactive override: set by tests or CI to skip TTY prompting
+  if (process.env.BRIDGE_NO_PROMPT) return null
+
   try {
     const ttyFd = openSync('/dev/tty', 'r+')
 
