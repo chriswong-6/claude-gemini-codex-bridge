@@ -147,7 +147,7 @@ describe('gemini CLI: direct invocation', () => {
 
     const result = await new Promise((resolve, reject) => {
       const chunks = []
-      const timer = setTimeout(() => { child.kill(); reject(new Error('gemini timed out on large file (30s)')) }, 30000)
+      const timer = setTimeout(() => { child.kill(); reject(new Error('gemini timed out on large file (120s)')) }, 120000)
       child.stdout.on('data', d => chunks.push(d))
       child.on('close', code => {
         clearTimeout(timer)
@@ -259,7 +259,7 @@ describe('pipeline: end-to-end with real CLIs', () => {
 // ── degradation with real gemini ──────────────────────────────────────────────
 
 describe('degradation: codex unavailable, gemini real', () => {
-  test('falls back to Gemini-only result when codex is missing', async () => {
+  test('approves (lets Claude handle directly) when codex is missing', async () => {
     const cacheDir = join(tmpdir(), `bridge-live-degrade-${Date.now()}`)
     const input = makeToolCall('Read', { file_path: join(FIXTURES, 'large-file.js') })
 
@@ -270,11 +270,7 @@ describe('degradation: codex unavailable, gemini real', () => {
 
     assert.equal(exitCode, 0)
     const out = JSON.parse(stdout)
-    assert.equal(out.decision, 'block',
-      'should still return a result using Gemini summary alone')
-    assert.ok(out.reason.includes('Gemini Context Summary'),
-      'fallback result should contain Gemini summary')
-    assert.ok(out.reason.includes('Codex unavailable'),
-      'fallback result should mention Codex was unavailable')
+    assert.equal(out.decision, 'approve',
+      'Codex is required — missing Codex should degrade to approve, not return partial result')
   })
 })

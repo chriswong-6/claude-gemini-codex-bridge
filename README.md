@@ -52,7 +52,12 @@ Claude Code creates `~/.claude/settings.json` on first run — this file is requ
 
 ```bash
 npm install -g @google/gemini-cli
-gemini auth login    # sign in with your Google account
+```
+
+Then authenticate with an API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+
+```bash
+echo '{"selectedAuthType":"apiKey","apiKey":"YOUR_KEY_HERE"}' > ~/.gemini/settings.json
 ```
 
 ### Codex CLI

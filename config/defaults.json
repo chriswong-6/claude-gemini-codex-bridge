@@ -8,7 +8,7 @@
   },
   "gemini": {
     "bin": "gemini",
-    "timeoutMs": 30000,
+    "timeoutMs": 120000,
     "rateLimitMs": 1000
   },
   "codex": {
