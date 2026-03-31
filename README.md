@@ -157,11 +157,38 @@ The mock setup:
 | Codex unavailable | Falls back to Gemini-only result, still returns `block` |
 | Gemini CLI missing | Degrades gracefully, returns `approve` instead of crashing |
 
-### Run everything
+### Run everything (mock)
 
 ```bash
 aitools start
 ```
+
+### Live tests (real CLIs)
+
+Requires gemini and codex CLIs installed and authenticated:
+
+```bash
+gemini auth login
+codex login
+
+aitools live
+```
+
+Live tests call the real `gemini` and `codex` binaries and verify:
+
+| Test | What is verified |
+|---|---|
+| gemini CLI installed | Binary exists in PATH |
+| gemini CLI authenticated | Returns a real response to a trivial prompt |
+| codex CLI installed | Binary exists in PATH |
+| Small file passes through | No delegation for files under threshold |
+| Large file triggers pipeline | Real Gemini summary + real Codex analysis returned |
+| Result contains both sections | `Gemini Context Summary` and `Codex Analysis` present |
+| Gemini summary passed to Codex | Result does not contain raw fixture lines (summarisation verified) |
+| Cache hit on second call | Second call completes in < 500ms |
+| Codex unavailable fallback | Gemini-only result returned when codex binary is missing |
+
+These tests take **30–60 seconds** due to real CLI latency.
 
 ### CI
 

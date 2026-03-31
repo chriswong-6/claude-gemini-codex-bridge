@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start":          "node --test test/unit.test.mjs && node --test test/integration.test.mjs && node test/check.mjs",
+    "live":           "node test/check.mjs --live && node --test test/live.test.mjs",
     "install-hook":   "bash install.sh",
     "uninstall-hook": "bash uninstall.sh",
     "check":          "node test/check.mjs",

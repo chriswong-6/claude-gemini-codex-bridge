@@ -15,13 +15,18 @@ const commands = {
     ['node', ['--test', 'test/integration.test.mjs']],
     ['node', ['test/check.mjs']],
   ],
+  live: [
+    ['node', ['test/check.mjs', '--live']],
+    ['node', ['--test', 'test/live.test.mjs']],
+  ],
 }
 
 if (!command || !commands[command]) {
   console.log('Usage: aitools <command>')
   console.log('')
   console.log('Commands:')
-  console.log('  start   Run all tests and diagnostics')
+  console.log('  start   Run all tests and diagnostics (mock, no auth needed)')
+  console.log('  live    Run live tests against real gemini + codex CLIs (auth required)')
   process.exit(1)
 }
 
