@@ -71,6 +71,100 @@ All options can be overridden via environment variables. Defaults are in `config
 | `DEBUG_LEVEL` | `0` | `0`=off `1`=basic `2`=verbose |
 | `LOG_DIR` | `~/.claude-gemini-codex-bridge/logs` | Log directory |
 
+## Testing
+
+No API keys or external services are required — all external calls are mocked.
+
+### Diagnostic check
+
+Quickly verifies that every component is present and functional:
+
+```bash
+node test/check.mjs
+```
+
+Output example:
+
+```
+claude-gemini-codex-bridge — component check
+
+  Runtime
+  ✓  Node.js version                  v20.x (>= 18 required)
+  ✓  jq                               jq-1.7
+
+  Project files
+  ✓  config/defaults.json
+  ✓  hooks/pre-tool-use.mjs
+  ...
+
+  Module functionality
+  ✓  config.mjs                       all sections present
+  ✓  paths.mjs                        @ resolution and traversal guard OK
+  ✓  router.mjs                       routing logic functional
+  ✓  cache.mjs                        cache dir: ~/.claude-gemini-codex-bridge/cache
+
+  External dependencies
+  !  codex binary                     'codex' not found — will fallback to Gemini-only
+  –  Gemini API connectivity          pass --live to test
+```
+
+Add `--live` to also ping the real Gemini API (requires `GEMINI_API_KEY`):
+
+```bash
+node test/check.mjs --live
+```
+
+### Unit tests
+
+Tests each module in isolation — no network, no filesystem side-effects:
+
+```bash
+node --test test/unit.test.mjs
+```
+
+| Suite | What is tested |
+|---|---|
+| `config` | Loads correctly, all sections present, thresholds are valid |
+| `logger` | Does not throw, writes to file without crashing |
+| `paths` | `@`-notation resolution, path-traversal blocking, per-tool extraction |
+| `router` | Small file → approve, large file → delegate, blocked paths, excluded patterns |
+| `cache` | Write/read round-trip, key determinism, TTL expiry |
+
+### Integration tests
+
+Simulates the full hook pipeline end-to-end using mocks — no API keys needed:
+
+```bash
+node --test test/integration.test.mjs
+```
+
+The mock setup:
+- A local HTTP server replaces the Gemini API and returns a fixed summary
+- A temporary Node.js script replaces the `codex` binary and returns a fixed analysis
+- The hook is spawned as a real child process with JSON piped to stdin
+
+| Scenario | What is verified |
+|---|---|
+| Small file | Hook outputs `{"decision":"approve"}` |
+| Unknown tool (`Write`) | Hook passes through without delegating |
+| Empty stdin | Hook does not crash |
+| Large file (336 KB) | Hook outputs `{"decision":"block"}` with pipeline result |
+| Result structure | Output contains both `Gemini Context Summary` and `Codex Analysis` sections |
+| Sequential ordering | Gemini section appears before Codex section in the output |
+| Cache hit | Second call on same file completes in < 500 ms |
+| Codex unavailable | Falls back to Gemini-only result, still returns `block` |
+| Missing API key | Degrades gracefully, returns `approve` instead of crashing |
+
+### Run everything
+
+```bash
+node --test test/unit.test.mjs && node --test test/integration.test.mjs && node test/check.mjs
+```
+
+### CI
+
+Tests run automatically on every push and pull request via GitHub Actions across Node.js 18, 20, and 22. See `.github/workflows/test.yml`.
+
 ## Project structure
 
 ```
