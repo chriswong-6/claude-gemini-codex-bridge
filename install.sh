@@ -26,10 +26,14 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
   exit 1
 fi
 
-# Warn if env vars are missing (non-fatal — user may set them later)
-[[ -z "${GEMINI_API_KEY:-}" ]] && echo "WARN: GEMINI_API_KEY is not set. Set it before using the bridge."
+# Warn if external binaries are missing (non-fatal — user may install them later)
+if ! command -v gemini &>/dev/null; then
+  echo "WARN: 'gemini' CLI not found in PATH."
+  echo "      Install it and run 'gemini auth login' before using the bridge."
+  echo "      See: https://github.com/google-gemini/gemini-cli"
+fi
 if ! command -v codex &>/dev/null; then
-  echo "WARN: 'codex' binary not found in PATH. Install it before using the bridge."
+  echo "WARN: 'codex' binary not found in PATH. Codex step will fall back to Gemini-only."
 fi
 
 # Create settings file if it doesn't exist
@@ -65,11 +69,12 @@ echo "$UPDATED" > "$SETTINGS"
 echo "Installed: claude-gemini-codex-bridge hook"
 echo "Hook path: $HOOK_SCRIPT"
 echo ""
-echo "Required environment variables:"
-echo "  GEMINI_API_KEY   — your Google Gemini API key"
+echo "Required external tools:"
+echo "  gemini   — Google Gemini CLI  (install: https://github.com/google-gemini/gemini-cli)"
+echo "             After install run: gemini auth login"
 echo ""
 echo "Optional environment variables (see config/defaults.json for all options):"
+echo "  GEMINI_BIN            (default: gemini)"
 echo "  CLAUDE_TOKEN_LIMIT    (default: 50000)"
-echo "  GEMINI_MODEL          (default: gemini-1.5-pro)"
 echo "  CODEX_APPROVAL_MODE   (default: suggest)"
 echo "  DEBUG_LEVEL           (default: 0 — set to 1 or 2 to enable logging)"

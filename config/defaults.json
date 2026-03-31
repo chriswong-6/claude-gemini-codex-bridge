@@ -7,7 +7,7 @@
     "charsPerToken": 4
   },
   "gemini": {
-    "model": "gemini-1.5-pro",
+    "bin": "gemini",
     "timeoutMs": 30000,
     "rateLimitMs": 1000
   },

@@ -32,17 +32,20 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 | Dependency | Notes |
 |---|---|
 | Node.js ≥ 18 | built-in `fetch` required |
-| `GEMINI_API_KEY` | Google AI Studio key |
-| `codex` CLI | `npm install -g @openai/codex` |
+| `gemini` CLI | Google Gemini CLI — auth handled by the CLI, no API key needed |
+| `codex` CLI | `npm install -g @openai/codex` — optional, falls back to Gemini-only |
 | `jq` | for `install.sh` |
 
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-gemini-codex-bridge
-cd claude-gemini-codex-bridge
+# 1. Install and authenticate the Gemini CLI
+#    https://github.com/google-gemini/gemini-cli
+gemini auth login
 
-export GEMINI_API_KEY=your_key_here
+# 2. Install the bridge
+git clone https://github.com/chriswong-6/claude-gemini-codex-bridge
+cd claude-gemini-codex-bridge
 bash install.sh
 ```
 
@@ -60,8 +63,7 @@ All options can be overridden via environment variables. Defaults are in `config
 
 | Variable | Default | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | _(required)_ | Google Gemini API key |
-| `GEMINI_MODEL` | `gemini-1.5-pro` | Gemini model to use |
+| `GEMINI_BIN` | `gemini` | Path to the gemini CLI binary |
 | `CLAUDE_TOKEN_LIMIT` | `50000` | Token threshold that triggers the pipeline |
 | `GEMINI_TOKEN_LIMIT` | `800000` | Upper bound; files larger than this are passed through |
 | `MAX_TOTAL_SIZE_BYTES` | `10485760` | Hard 10 MB cap |
@@ -153,7 +155,7 @@ The mock setup:
 | Sequential ordering | Gemini section appears before Codex section in the output |
 | Cache hit | Second call on same file completes in < 500 ms |
 | Codex unavailable | Falls back to Gemini-only result, still returns `block` |
-| Missing API key | Degrades gracefully, returns `approve` instead of crashing |
+| Gemini CLI missing | Degrades gracefully, returns `approve` instead of crashing |
 
 ### Run everything
 

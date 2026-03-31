@@ -1,17 +1,21 @@
 /**
- * Gemini API client.
- * Sends large file content to Gemini and returns a structured code summary
- * optimised as input for the subsequent Codex step.
+ * Gemini CLI client.
+ * Pipes large file content to the `gemini` CLI binary and returns a structured
+ * code summary optimised as input for the subsequent Codex step.
+ *
+ * Authentication is handled by the gemini CLI itself (via `gemini auth login`).
+ * No API key is required in this project.
  */
 
+import { spawn } from 'child_process'
 import { readFile } from 'fs/promises'
 import { log, logError } from './logger.mjs'
 
-// Rate-limit state (in-process; fine for a single-process hook)
+// Rate-limit state (in-process)
 let _lastCallMs = 0
 
-function buildPrompt(toolName, filePaths, originalPrompt) {
-  const header = `You are a senior software engineer helping another AI (Codex) \
+function buildPrompt(toolName, originalPrompt) {
+  return `You are a senior software engineer helping another AI (Codex) \
 understand a large codebase. Your output will be fed directly into Codex as context.
 
 Original request: "${originalPrompt}"
@@ -25,11 +29,7 @@ Analyse the following file(s) and produce a STRUCTURED SUMMARY containing:
 5. Anything unusual, risky, or worth a code-review flag
 
 Be concise but complete. Codex will act on this summary — do NOT omit details \
-that could affect correctness.
-
----FILES---`
-
-  return header
+that could affect correctness.`
 }
 
 async function readFileSafe(fp) {
@@ -41,8 +41,7 @@ async function readFileSafe(fp) {
 }
 
 async function enforceRateLimit(rateLimitMs) {
-  const now = Date.now()
-  const wait = rateLimitMs - (now - _lastCallMs)
+  const wait = rateLimitMs - (Date.now() - _lastCallMs)
   if (wait > 0) {
     log(2, `rate limit: waiting ${wait}ms`)
     await new Promise(r => setTimeout(r, wait))
@@ -58,62 +57,65 @@ async function enforceRateLimit(rateLimitMs) {
  * @returns {string} Gemini's structured summary
  */
 export async function summariseWithGemini(toolName, filePaths, originalPrompt, config) {
-  if (!config.gemini.apiKey) {
-    throw new Error('GEMINI_API_KEY is not set')
-  }
-
   await enforceRateLimit(config.gemini.rateLimitMs)
 
-  // Build request body
-  const parts = [{ text: buildPrompt(toolName, filePaths, originalPrompt) }]
-
+  // Build stdin: prompt header + file contents
+  const prompt = buildPrompt(toolName, originalPrompt)
+  const fileSections = []
   for (const fp of filePaths) {
     const content = await readFileSafe(fp)
-    parts.push({ text: `\n\n### File: ${fp}\n\`\`\`\n${content}\n\`\`\`` })
+    fileSections.push(`=== File: ${fp} ===\n\n${content}`)
   }
+  const stdin = fileSections.join('\n\n')
 
-  const body = {
-    contents: [{ parts }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 8192,
-    },
-  }
+  log(1, `calling gemini CLI (${config.gemini.bin}) for ${filePaths.length} file(s)`)
 
-  // GEMINI_API_URL can override the base URL (used in tests to point at a mock server)
-  const baseUrl = process.env.GEMINI_API_URL
-    ?? 'https://generativelanguage.googleapis.com/v1beta'
-  const url = `${baseUrl}/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`
-
-  log(1, `calling Gemini (${config.gemini.model}) for ${filePaths.length} file(s)`)
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), config.gemini.timeoutMs)
-
-  let resp
-  try {
-    resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
+  return new Promise((resolve, reject) => {
+    const child = spawn(config.gemini.bin, ['-p', prompt], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
     })
-  } finally {
-    clearTimeout(timer)
-  }
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`Gemini API error ${resp.status}: ${text}`)
-  }
+    const stdout = []
+    const stderr = []
 
-  const json = await resp.json()
-  const summary = json?.candidates?.[0]?.content?.parts?.[0]?.text
+    child.stdout.on('data', d => stdout.push(d))
+    child.stderr.on('data', d => stderr.push(d))
 
-  if (!summary) {
-    throw new Error('Gemini returned empty response')
-  }
+    // Pipe file contents to stdin then close.
+    // Ignore EPIPE — some stub/fast-exit binaries close stdin early.
+    child.stdin.on('error', () => {})
+    child.stdin.write(stdin, 'utf8')
+    child.stdin.end()
 
-  log(1, `Gemini summary: ${summary.length} chars`)
-  return summary
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+      reject(new Error(`gemini CLI timed out after ${config.gemini.timeoutMs}ms`))
+    }, config.gemini.timeoutMs)
+
+    child.on('close', code => {
+      clearTimeout(timer)
+      const out = Buffer.concat(stdout).toString('utf8').trim()
+      const err = Buffer.concat(stderr).toString('utf8').trim()
+
+      if (code !== 0) {
+        logError(`gemini CLI exited ${code}: ${err}`)
+        reject(new Error(`gemini CLI exited with code ${code}: ${err}`))
+        return
+      }
+
+      if (!out) {
+        reject(new Error('gemini CLI returned empty output'))
+        return
+      }
+
+      log(1, `Gemini summary: ${out.length} chars`)
+      resolve(out)
+    })
+
+    child.on('error', err => {
+      clearTimeout(timer)
+      reject(new Error(`Failed to spawn gemini CLI: ${err.message}`))
+    })
+  })
 }

@@ -170,27 +170,25 @@ async function checkPaths() {
   }
 }
 
-async function checkGeminiPing(cfg) {
-  if (!LIVE) {
-    record('Gemini API connectivity', 'skip', 'pass --live to test')
-    return
-  }
-  if (!cfg?.gemini?.apiKey) {
-    record('Gemini API connectivity', 'fail', 'GEMINI_API_KEY not set')
-    return
-  }
+async function checkGeminiCLI(cfg) {
+  const bin = cfg?.gemini?.bin ?? 'gemini'
   try {
-    const baseUrl = process.env.GEMINI_API_URL
-      ?? 'https://generativelanguage.googleapis.com/v1beta'
-    const url = `${baseUrl}/models?key=${cfg.gemini.apiKey}`
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) })
-    if (resp.ok) {
-      record('Gemini API connectivity', 'pass', `HTTP ${resp.status}`)
+    await exec(bin, ['--version']).catch(() => exec('which', [bin]))
+    record('gemini CLI binary', 'pass', `found: ${bin}`)
+    if (LIVE) {
+      // Try a minimal invocation to confirm auth works
+      try {
+        await exec(bin, ['-p', 'say: ok'], { timeout: 10000 })
+        record('gemini CLI auth', 'pass', 'authenticated')
+      } catch {
+        record('gemini CLI auth', 'warn', 'run: gemini auth login')
+      }
     } else {
-      record('Gemini API connectivity', 'fail', `HTTP ${resp.status}`)
+      record('gemini CLI auth', 'skip', 'pass --live to verify login')
     }
-  } catch (err) {
-    record('Gemini API connectivity', 'fail', err.message)
+  } catch {
+    record('gemini CLI binary', 'fail',
+      `'${bin}' not found — install: https://github.com/google-gemini/gemini-cli`)
   }
 }
 
@@ -289,7 +287,7 @@ async function main() {
 
   console.log()
   console.log(c.bold('  Environment'))
-  await checkEnv('GEMINI_API_KEY', 'GEMINI_API_KEY', true)
+  await checkEnv('GEMINI_BIN override', 'GEMINI_BIN', false)
   await checkEnv('CODEX_BIN override', 'CODEX_BIN', false)
 
   console.log()
@@ -303,8 +301,8 @@ async function main() {
 
   console.log()
   console.log(c.bold('  External dependencies'))
+  await checkGeminiCLI(cfg)
   await checkCodexBin(cfg)
-  await checkGeminiPing(cfg)
 
   console.log()
   console.log(c.bold('  Scripts'))

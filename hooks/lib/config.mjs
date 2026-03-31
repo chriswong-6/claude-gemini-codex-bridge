@@ -26,9 +26,8 @@ export async function loadConfig() {
       charsPerToken:      defaults.routing.charsPerToken,
     },
     gemini: {
-      apiKey:    process.env.GEMINI_API_KEY ?? '',
-      model:     process.env.GEMINI_MODEL   ?? defaults.gemini.model,
-      timeoutMs: parseInt(process.env.GEMINI_TIMEOUT_MS ?? defaults.gemini.timeoutMs),
+      bin:         process.env.GEMINI_BIN          ?? defaults.gemini.bin,
+      timeoutMs:   parseInt(process.env.GEMINI_TIMEOUT_MS   ?? defaults.gemini.timeoutMs),
       rateLimitMs: parseInt(process.env.GEMINI_RATE_LIMIT_MS ?? defaults.gemini.rateLimitMs),
     },
     codex: {
