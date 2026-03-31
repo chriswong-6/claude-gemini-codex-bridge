@@ -52,13 +52,21 @@ Claude Code creates `~/.claude/settings.json` on first run — this file is requ
 
 ```bash
 npm install -g @google/gemini-cli
+gemini   # select "Login with Google" → complete browser OAuth
 ```
 
-Then authenticate with an API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+On first run, `gemini` opens an interactive prompt asking how to authenticate.
+Select **"Login with Google"** and complete the browser flow — no API key needed.
 
-```bash
-echo '{"selectedAuthType":"apiKey","apiKey":"YOUR_KEY_HERE"}' > ~/.gemini/settings.json
-```
+> **Google Workspace accounts** require an additional env var pointing to a
+> Google Cloud Project with the [Gemini for Google Cloud API](https://console.cloud.google.com/apis/library/cloudaicompanion.googleapis.com) enabled:
+> ```bash
+> export GOOGLE_CLOUD_PROJECT=your-project-id   # add to ~/.zshenv to persist
+> ```
+
+> **Alternative — API Key:** if you prefer not to use OAuth, create a free key at
+> [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and run
+> `gemini`, then select **"Use Gemini API Key"**.
 
 ### Codex CLI
 
