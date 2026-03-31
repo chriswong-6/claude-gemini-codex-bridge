@@ -80,9 +80,10 @@ export async function summariseWithGemini(toolName, filePaths, originalPrompt, c
     },
   }
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/` +
-    `${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`
+  // GEMINI_API_URL can override the base URL (used in tests to point at a mock server)
+  const baseUrl = process.env.GEMINI_API_URL
+    ?? 'https://generativelanguage.googleapis.com/v1beta'
+  const url = `${baseUrl}/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`
 
   log(1, `calling Gemini (${config.gemini.model}) for ${filePaths.length} file(s)`)
 

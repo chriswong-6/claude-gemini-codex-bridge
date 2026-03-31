@@ -7,9 +7,13 @@
     "node": ">=18.18.0"
   },
   "scripts": {
-    "install-hook": "bash install.sh",
+    "install-hook":   "bash install.sh",
     "uninstall-hook": "bash uninstall.sh",
-    "test": "node --test hooks/lib/*.test.mjs"
+    "check":          "node test/check.mjs",
+    "check:live":     "node test/check.mjs --live",
+    "test":           "node --test test/unit.test.mjs",
+    "test:integration": "node --test test/integration.test.mjs",
+    "test:all":       "node --test test/unit.test.mjs && node --test test/integration.test.mjs"
   },
   "keywords": [
     "claude-code",
