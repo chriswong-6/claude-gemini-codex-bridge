@@ -82,8 +82,11 @@ Codex is required. Without it the pipeline is incomplete and `install.sh` will e
 ```bash
 git clone https://github.com/chriswong-6/claude-gemini-codex-bridge
 cd claude-gemini-codex-bridge
+npm link        # registers the `aitools` command globally
 bash install.sh
 ```
+
+`npm link` registers the `aitools` CLI so you can run `aitools start`, `aitools live`, and `aitools trace` from any directory.
 
 The script adds a `PreToolUse` hook entry to `~/.claude/settings.json`.
 
