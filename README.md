@@ -90,6 +90,22 @@ bash install.sh
 
 The script adds a `PreToolUse` hook entry to `~/.claude/settings.json`.
 
+## Step 3 — Start using it
+
+```bash
+claude
+```
+
+That's it. The bridge runs automatically in the background — no extra commands needed. Whenever Claude reads a file larger than 50k tokens, the hook intercepts the call and routes it through Gemini → Codex before returning the result.
+
+To verify the pipeline is working, open a second terminal and run:
+
+```bash
+aitools trace
+```
+
+Every time the bridge fires, the trace window shows the data flow within ~100ms.
+
 ## Uninstall the bridge
 
 ```bash
