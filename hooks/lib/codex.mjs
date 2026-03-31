@@ -64,9 +64,14 @@ export async function analyseWithCodex(geminiSummary, originalPrompt, toolName, 
 
     const child = spawn(config.codex.bin, args, {
       cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     })
+
+    // Close stdin immediately — codex exec reads it as "additional input"
+    // if left open; closing it signals EOF so codex proceeds with the prompt arg.
+    child.stdin.on('error', () => {})
+    child.stdin.end()
 
     const stderr = []
     child.stderr.on('data', d => stderr.push(d))
