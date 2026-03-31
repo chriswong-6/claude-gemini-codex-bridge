@@ -24,6 +24,7 @@ import { summariseWithGemini }               from './lib/gemini.mjs'
 import { analyseWithCodex }                  from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
 import { writeTrace }                        from './lib/tracer.mjs'
+import { promptDegradation }                from './lib/prompt.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,10 +134,22 @@ async function main() {
   } catch (err) {
     logError(`Gemini step failed: ${err.message}`)
     trace.gemini = { called: true, inputFiles: trace.filePaths.length, outputChars: 0, latencyMs: Date.now() - tGemini, error: err.message }
-    trace.finalDecision  = 'approve'
-    trace.totalLatencyMs = Date.now() - t0
-    await writeTrace(trace, config)
-    approve()
+
+    const accepted = await promptDegradation('Gemini', 'Claude will handle the file directly (no summarisation)')
+    if (accepted === null || accepted === true) {
+      // non-interactive (null) or user accepted → approve
+      trace.finalDecision  = 'approve'
+      trace.totalLatencyMs = Date.now() - t0
+      await writeTrace(trace, config)
+      approve()
+    } else {
+      // user declined → block with error
+      const reason = `Gemini is unavailable: ${err.message}\nPipeline aborted. Retry after fixing Gemini authentication.`
+      trace.finalDecision  = 'block'
+      trace.totalLatencyMs = Date.now() - t0
+      await writeTrace(trace, config)
+      block(reason)
+    }
     return
   }
 
@@ -156,17 +169,38 @@ async function main() {
   } catch (err) {
     logError(`Codex step failed: ${err.message}`)
     trace.codex = {
-      called:    true,
-      inputChars: geminiSummary.length,
+      called:      true,
+      inputChars:  geminiSummary.length,
       outputChars: 0,
-      latencyMs: Date.now() - tCodex,
-      error:     err.message,
-      fallback:  false,
+      latencyMs:   Date.now() - tCodex,
+      error:       err.message,
+      fallback:    false,
     }
-    trace.finalDecision  = 'approve'
-    trace.totalLatencyMs = Date.now() - t0
-    await writeTrace(trace, config)
-    approve()
+
+    const accepted = await promptDegradation('Codex', 'Gemini summary will be returned without Codex deep-analysis')
+    if (accepted === true) {
+      // user accepted → return Gemini-only result
+      const output = formatOutput(geminiSummary, `[Codex unavailable: ${err.message}]`, toolName, trace.filePaths.length)
+      await setCached(cacheKey, output, config)
+      trace.codex.fallback  = true
+      trace.finalDecision   = 'block'
+      trace.totalLatencyMs  = Date.now() - t0
+      await writeTrace(trace, config)
+      block(output)
+    } else if (accepted === null) {
+      // non-interactive → approve silently (original behaviour)
+      trace.finalDecision  = 'approve'
+      trace.totalLatencyMs = Date.now() - t0
+      await writeTrace(trace, config)
+      approve()
+    } else {
+      // user declined → block with error
+      const reason = `Codex is unavailable: ${err.message}\nPipeline aborted. Retry after fixing Codex authentication.`
+      trace.finalDecision  = 'block'
+      trace.totalLatencyMs = Date.now() - t0
+      await writeTrace(trace, config)
+      block(reason)
+    }
     return
   }
 

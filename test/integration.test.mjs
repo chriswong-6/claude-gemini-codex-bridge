@@ -54,14 +54,21 @@ function makeToolCall(toolName, toolInput, cwd = '/tmp') {
 
 /**
  * Create a stub binary that writes a fixed string to stdout and exits 0.
- * Used to mock both `gemini` and `codex` CLI calls.
+ * Supports the -o <file> flag used by codex exec to write last message to a file.
  */
 async function createStubBin(dir, name, output) {
   await mkdir(dir, { recursive: true })
   const p = join(dir, name)
-  await writeFile(p,
-    `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(output + '\n')})\n`,
-    { mode: 0o755 })
+  await writeFile(p, `#!/usr/bin/env node
+import { writeFileSync } from 'fs'
+const args = process.argv.slice(2)
+const oIdx = args.indexOf('-o')
+if (oIdx !== -1 && args[oIdx + 1]) {
+  writeFileSync(args[oIdx + 1], ${JSON.stringify(output + '\n')})
+} else {
+  process.stdout.write(${JSON.stringify(output + '\n')})
+}
+`, { mode: 0o755 })
   return p
 }
 
