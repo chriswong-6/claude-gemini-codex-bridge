@@ -21,15 +21,6 @@ const commands = {
   ],
 }
 
-if (!command || !commands[command]) {
-  console.log('Usage: aitools <command>')
-  console.log('')
-  console.log('Commands:')
-  console.log('  start   Run all tests and diagnostics (mock, no auth needed)')
-  console.log('  live    Run live tests against real gemini + codex CLIs (auth required)')
-  process.exit(1)
-}
-
 async function run(bin, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd: ROOT, stdio: 'inherit' })
@@ -38,11 +29,33 @@ async function run(bin, args) {
   })
 }
 
-for (const [bin, args] of commands[command]) {
-  try {
-    await run(bin, args)
-  } catch (err) {
-    console.error(err.message)
-    process.exit(1)
+if (command === 'trace') {
+  // Pass through extra flags (--all, --watch) directly to trace.mjs
+  const extraArgs = process.argv.slice(3)
+  const child = spawn('node', [join(ROOT, 'test/trace.mjs'), ...extraArgs], {
+    cwd: ROOT, stdio: 'inherit',
+  })
+  child.on('close', code => process.exit(code ?? 0))
+  child.on('error', err => { console.error(err.message); process.exit(1) })
+
+} else if (!command || !commands[command]) {
+  console.log('Usage: aitools <command>')
+  console.log('')
+  console.log('Commands:')
+  console.log('  start          Run all tests and diagnostics (mock, no auth needed)')
+  console.log('  live           Run live tests against real CLIs (auth required)')
+  console.log('  trace          Check the latest real invocation trace')
+  console.log('  trace --all    Check all traces from today')
+  console.log('  trace --watch  Watch for new traces in real-time')
+  process.exit(1)
+
+} else {
+  for (const [bin, args] of commands[command]) {
+    try {
+      await run(bin, args)
+    } catch (err) {
+      console.error(err.message)
+      process.exit(1)
+    }
   }
 }

@@ -16,13 +16,14 @@
  * Exit codes: 0 always (never crash the hook chain).
  */
 
-import { loadConfig }         from './lib/config.mjs'
-import { initLogger, log, logError } from './lib/logger.mjs'
-import { shouldDelegate }     from './lib/router.mjs'
+import { loadConfig }                        from './lib/config.mjs'
+import { initLogger, log, logError }         from './lib/logger.mjs'
+import { shouldDelegate }                    from './lib/router.mjs'
 import { extractFilePaths, describeToolCall } from './lib/paths.mjs'
-import { summariseWithGemini } from './lib/gemini.mjs'
-import { analyseWithCodex }   from './lib/codex.mjs'
+import { summariseWithGemini }               from './lib/gemini.mjs'
+import { analyseWithCodex }                  from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
+import { writeTrace }                        from './lib/tracer.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,9 +32,7 @@ function approve() {
 }
 
 function block(reason) {
-  process.stdout.write(
-    JSON.stringify({ decision: 'block', reason }) + '\n'
-  )
+  process.stdout.write(JSON.stringify({ decision: 'block', reason }) + '\n')
 }
 
 async function readStdin() {
@@ -48,14 +47,37 @@ async function main() {
   const config = await loadConfig()
   initLogger(config.debug.level, config.debug.logDir)
 
+  const trace = {
+    timestamp:    new Date().toISOString(),
+    toolName:     '',
+    filePaths:    [],
+    description:  '',
+    routing:      { delegate: false, reason: '' },
+    cacheHit:     false,
+    gemini:       { called: false, inputFiles: 0, outputChars: 0, latencyMs: 0, error: null },
+    codex:        { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
+    finalDecision: '',
+    totalLatencyMs: 0,
+  }
+  const t0 = Date.now()
+
   // 1. Parse hook input
   let input
   try {
     const raw = await readStdin()
-    if (!raw) { approve(); return }
+    if (!raw) {
+      trace.finalDecision = 'approve'
+      trace.routing.reason = 'empty stdin'
+      await writeTrace(trace, config)
+      approve()
+      return
+    }
     input = JSON.parse(raw)
   } catch (err) {
     logError(`Failed to parse hook input: ${err.message}`)
+    trace.finalDecision = 'approve'
+    trace.routing.reason = 'invalid JSON input'
+    await writeTrace(trace, config)
     approve()
     return
   }
@@ -64,56 +86,93 @@ async function main() {
   const toolInput = input.tool_input ?? input.parameters ?? {}
   const cwd       = input.context?.working_directory ?? process.cwd()
 
+  trace.toolName    = toolName
+  trace.description = describeToolCall(toolName, toolInput)
+  trace.filePaths   = extractFilePaths(toolName, toolInput, cwd)
+
   log(1, `hook fired: tool=${toolName} cwd=${cwd}`)
 
-  // 2. Extract file paths from the tool call
-  const filePaths   = extractFilePaths(toolName, toolInput, cwd)
-  const description = describeToolCall(toolName, toolInput)
-
-  // 3. Routing decision
-  const { delegate, reason } = await shouldDelegate(toolName, filePaths, config)
+  // 2. Routing decision
+  const { delegate, reason } = await shouldDelegate(toolName, trace.filePaths, config)
+  trace.routing = { delegate, reason }
   log(1, `delegate=${delegate} reason="${reason}"`)
 
   if (!delegate) {
+    trace.finalDecision = 'approve'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
     approve()
     return
   }
 
-  // 4a. Cache check
-  const cacheKey = await buildCacheKey(filePaths, description)
+  // 3. Cache check
+  const cacheKey = await buildCacheKey(trace.filePaths, trace.description)
   const cached   = await getCached(cacheKey, config)
   if (cached) {
     log(1, 'returning cached pipeline result')
+    trace.cacheHit     = true
+    trace.finalDecision = 'block'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
     block(cached)
     return
   }
 
-  // 4b. Gemini step
+  // 4. Gemini step
   let geminiSummary
+  const tGemini = Date.now()
   try {
-    geminiSummary = await summariseWithGemini(toolName, filePaths, description, config)
+    geminiSummary = await summariseWithGemini(toolName, trace.filePaths, trace.description, config)
+    trace.gemini = {
+      called:      true,
+      inputFiles:  trace.filePaths.length,
+      outputChars: geminiSummary.length,
+      latencyMs:   Date.now() - tGemini,
+      error:       null,
+    }
   } catch (err) {
     logError(`Gemini step failed: ${err.message}`)
-    // Degrade gracefully: let Claude handle it directly
+    trace.gemini = { called: true, inputFiles: trace.filePaths.length, outputChars: 0, latencyMs: Date.now() - tGemini, error: err.message }
+    trace.finalDecision  = 'approve'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
     approve()
     return
   }
 
-  // 4c. Codex step
+  // 5. Codex step
   let codexResult
+  const tCodex = Date.now()
   try {
-    codexResult = await analyseWithCodex(
-      geminiSummary, description, toolName, cwd, config
-    )
+    codexResult = await analyseWithCodex(geminiSummary, trace.description, toolName, cwd, config)
+    trace.codex = {
+      called:      true,
+      inputChars:  geminiSummary.length,
+      outputChars: codexResult.length,
+      latencyMs:   Date.now() - tCodex,
+      error:       null,
+      fallback:    false,
+    }
   } catch (err) {
     logError(`Codex step failed: ${err.message} — falling back to Gemini summary`)
-    // Fallback: return Gemini summary alone rather than failing completely
     codexResult = `[Codex unavailable — Gemini summary below]\n\n${geminiSummary}`
+    trace.codex = {
+      called:      true,
+      inputChars:  geminiSummary.length,
+      outputChars: codexResult.length,
+      latencyMs:   Date.now() - tCodex,
+      error:       err.message,
+      fallback:    true,
+    }
   }
 
-  // 4d. Cache and return
-  const output = formatOutput(geminiSummary, codexResult, toolName, filePaths.length)
+  // 6. Cache and return
+  const output = formatOutput(geminiSummary, codexResult, toolName, trace.filePaths.length)
   await setCached(cacheKey, output, config)
+
+  trace.finalDecision  = 'block'
+  trace.totalLatencyMs = Date.now() - t0
+  await writeTrace(trace, config)
   block(output)
 }
 
@@ -131,5 +190,5 @@ function formatOutput(geminiSummary, codexResult, toolName, fileCount) {
 
 main().catch(err => {
   process.stderr.write(`[bridge] fatal: ${err.message}\n`)
-  approve()   // always let Claude proceed rather than hanging
+  approve()
 })

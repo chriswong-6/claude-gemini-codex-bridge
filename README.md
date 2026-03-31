@@ -190,6 +190,42 @@ Live tests call the real `gemini` and `codex` binaries and verify:
 
 These tests take **30–60 seconds** due to real CLI latency.
 
+### Trace: verify real data flow
+
+After using Claude Code normally (with the hook installed), run:
+
+```bash
+aitools trace
+```
+
+This reads the last real invocation and validates whether the data actually flowed through the pipeline as described:
+
+```
+── 14:32:05  Read  (1 file(s)) ──────────────────
+  Claude → hook → Gemini → Codex → result → Claude
+
+  ✓  Tool call received               Read: Read file: src/large-module.js
+  ✓  Routing decision made            ~84k tokens exceeds Claude limit
+  ✓  Large file: Gemini called first  1 file(s) → 3241 chars summary (12043ms)
+  ✓  Gemini produced a summary        3241 chars
+  ✓  Codex called after Gemini        3241 chars in → 891 chars out (8120ms)
+  ✓  Codex received Gemini summary    3241 chars passed through correctly
+  ✓  Result injected back into Claude blocked with 891 char result
+  ✓  Cache                            miss — pipeline executed
+  ✓  Total latency                    20163ms
+
+  Pipeline ran as described.
+```
+
+Other options:
+
+```bash
+aitools trace --all    # show all traces from today
+aitools trace --watch  # auto-refresh every 2s as new invocations arrive
+```
+
+Traces are stored at `~/.claude-gemini-codex-bridge/traces/`.
+
 ### CI
 
 Tests run automatically on every push and pull request via GitHub Actions across Node.js 18, 20, and 22. See `.github/workflows/test.yml`.
