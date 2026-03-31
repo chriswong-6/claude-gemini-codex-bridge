@@ -160,7 +160,7 @@ The mock setup:
 ### Run everything
 
 ```bash
-node --test test/unit.test.mjs && node --test test/integration.test.mjs && node test/check.mjs
+aitools start
 ```
 
 ### CI
