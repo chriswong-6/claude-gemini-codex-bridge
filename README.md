@@ -55,7 +55,7 @@ npm install -g @google/gemini-cli
 gemini auth login    # sign in with your Google account
 ```
 
-### Codex CLI (optional)
+### Codex CLI
 
 ```bash
 npm install -g @openai/codex
