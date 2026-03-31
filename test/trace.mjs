@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
- * aitools trace — reads the latest hook trace and shows whether
- * the actual data flow matched the described pipeline.
+ * aitools trace — watches the trace directory and prints a result
+ * immediately whenever the bridge processes a real invocation.
  *
  * Usage:  aitools trace
+ *
+ * Keep this running in a separate terminal while using Claude Code.
+ * Every time the hook fires, the result appears here within ~100ms.
  */
 
-import { readdir, readFile } from 'fs/promises'
+import { readdir, readFile, mkdir } from 'fs/promises'
+import { watch } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -22,94 +26,107 @@ const c = {
   dim:    s => isTTY ? `\x1b[2m${s}\x1b[0m`  : s,
 }
 
-// ── load latest trace ─────────────────────────────────────────────────────────
+// ── print one trace ───────────────────────────────────────────────────────────
 
-async function loadLatest() {
-  let files
+function printTrace(t) {
+  const time      = new Date(t.timestamp).toLocaleTimeString()
+  const delegated = t.routing?.delegate
+
+  console.log()
+  console.log(c.bold('─'.repeat(52)))
+  console.log(c.bold(`  ${time}  ·  ${t.toolName}  ·  ${t.filePaths?.length ?? 0} file(s)`))
+  console.log(c.bold('─'.repeat(52)))
+
+  // described workflow
+  console.log()
+  console.log(c.dim('  Described:'))
+  if (!delegated) {
+    console.log(`  Claude ─→ Claude ${c.dim('(small file, direct)')}`  )
+  } else {
+    console.log(`  Claude ─→ Gemini ─→ Codex ─→ Claude`)
+  }
+
+  // actual workflow
+  console.log()
+  console.log(c.dim('  Actual:'))
+  if (!delegated) {
+    const ok = t.finalDecision === 'approve' && !t.gemini?.called
+    console.log(`  Claude ─→ ${ok ? c.green('Claude ✓') : c.red('unexpected: ' + t.finalDecision)}`)
+  } else {
+    const geminiOk = t.gemini?.called && !t.gemini?.error
+    const codexOk  = t.codex?.called  && !t.codex?.error
+    const resultOk = t.finalDecision === 'block'
+
+    const g = geminiOk ? c.green('Gemini ✓') : c.red('Gemini ✗')
+    const x = codexOk  ? c.green('Codex ✓')  : (t.codex?.fallback ? c.yellow('Codex ⚠') : c.red('Codex ✗'))
+    const r = resultOk ? c.green('Claude ✓') : c.red('failed ✗')
+
+    console.log(`  Claude ─→ ${g} ─→ ${x} ─→ ${r}`)
+    console.log()
+
+    if (t.gemini?.called) {
+      const s = geminiOk ? c.green('ok') : c.red(t.gemini.error)
+      console.log(`  Gemini  ${s}  ${c.dim(`${t.gemini.inputFiles} file(s) → ${t.gemini.outputChars} chars  (${t.gemini.latencyMs}ms)`)}`)
+    }
+    if (t.codex?.called) {
+      const s = codexOk ? c.green('ok') : (t.codex.fallback ? c.yellow('fallback') : c.red(t.codex.error))
+      console.log(`  Codex   ${s}  ${c.dim(`${t.codex.inputChars} chars in → ${t.codex.outputChars} chars out  (${t.codex.latencyMs}ms)`)}`)
+    }
+    console.log(`  Cache   ${c.dim(t.cacheHit ? 'hit' : 'miss')}    Total ${c.dim(t.totalLatencyMs + 'ms')}`)
+  }
+
+  // verdict
+  const matched = delegated
+    ? t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block'
+    : t.finalDecision === 'approve' && !t.gemini?.called
+
+  console.log()
+  if (matched) {
+    console.log(c.bold(c.green('  ✓  Matches described workflow')))
+  } else {
+    console.log(c.bold(c.red('  ✗  Does NOT match described workflow')))
+  }
+  console.log()
+}
+
+// ── load a trace file safely ──────────────────────────────────────────────────
+
+async function loadTrace(filename) {
   try {
-    files = (await readdir(TRACE_DIR)).filter(f => f.endsWith('.json')).sort()
+    const raw = await readFile(join(TRACE_DIR, filename), 'utf8')
+    return JSON.parse(raw)
   } catch {
     return null
   }
-  if (!files.length) return null
-  const raw = await readFile(join(TRACE_DIR, files.at(-1)), 'utf8')
-  return JSON.parse(raw)
 }
 
-// ── main ──────────────────────────────────────────────────────────────────────
+// ── watch loop ────────────────────────────────────────────────────────────────
 
-const t = await loadLatest()
+await mkdir(TRACE_DIR, { recursive: true })
 
-if (!t) {
-  console.log('\nNo traces yet.')
-  console.log(c.dim('Use Claude Code normally with the bridge installed, then run aitools trace.\n'))
-  process.exit(0)
-}
-
-const time  = new Date(t.timestamp).toLocaleString()
-const delegated = t.routing?.delegate
-
-console.log()
-console.log(c.bold('Invocation'))
-console.log(`  Time   : ${time}`)
-console.log(`  Tool   : ${t.toolName}`)
-console.log(`  Files  : ${t.filePaths?.length ?? 0}`)
-console.log(`  Reason : ${t.routing?.reason ?? '-'}`)
-
-console.log()
-console.log(c.bold('Described workflow'))
-if (!delegated) {
-  console.log(`  Claude ${c.dim('─→')} tool call ${c.dim('─→')} ${c.dim('Claude handles directly')}`)
-} else {
-  console.log(`  Claude ${c.dim('─→')} Gemini ${c.dim('─→')} Codex ${c.dim('─→')} result back to Claude`)
-}
-
-console.log()
-console.log(c.bold('Actual workflow'))
-
-if (!delegated) {
-  // pass-through path
-  const ok = t.finalDecision === 'approve' && !t.gemini?.called
-  const icon = ok ? c.green('✓') : c.red('✗')
-  console.log(`  ${icon} Claude ${c.dim('─→')} ${ok ? c.green('passed through to Claude') : c.red('unexpected: ' + t.finalDecision)}`)
-
-} else {
-  // delegation path — show each step
-  const geminiOk = t.gemini?.called && !t.gemini?.error
-  const codexOk  = t.codex?.called  && !t.codex?.error
-  const resultOk = t.finalDecision === 'block'
-
-  const g = geminiOk ? c.green('Gemini ✓') : c.red('Gemini ✗')
-  const x = codexOk  ? c.green('Codex ✓')  : (t.codex?.fallback ? c.yellow('Codex (fallback)') : c.red('Codex ✗'))
-  const r = resultOk ? c.green('result → Claude ✓') : c.red('result missing ✗')
-
-  console.log(`  Claude ${c.dim('─→')} ${g} ${c.dim('─→')} ${x} ${c.dim('─→')} ${r}`)
-  console.log()
-
-  // step detail
-  if (t.gemini?.called) {
-    const status = geminiOk ? c.green('ok') : c.red(t.gemini.error)
-    console.log(`  Gemini : ${status}  ${c.dim(`${t.gemini.inputFiles} file(s) → ${t.gemini.outputChars} chars  (${t.gemini.latencyMs}ms)`)}`)
+// show the latest existing trace immediately on startup (if any)
+try {
+  const existing = (await readdir(TRACE_DIR)).filter(f => f.endsWith('.json')).sort()
+  if (existing.length) {
+    const t = await loadTrace(existing.at(-1))
+    if (t) printTrace(t)
   }
-  if (t.codex?.called) {
-    const status = codexOk ? c.green('ok') : (t.codex.fallback ? c.yellow('fallback') : c.red(t.codex.error))
-    console.log(`  Codex  : ${status}  ${c.dim(`${t.codex.inputChars} chars in → ${t.codex.outputChars} chars out  (${t.codex.latencyMs}ms)`)}`)
-  }
-  console.log(`  Cache  : ${c.dim(t.cacheHit ? 'hit' : 'miss')}`)
-  console.log(`  Total  : ${c.dim(t.totalLatencyMs + 'ms')}`)
-}
+} catch {}
 
-// ── verdict ───────────────────────────────────────────────────────────────────
+console.log(c.dim('  Watching for new invocations… (Ctrl+C to stop)'))
 
-console.log()
+// debounce: a new file triggers two events (create + write), ignore the second
+const pending = new Set()
 
-const matched = delegated
-  ? t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block'
-  : t.finalDecision === 'approve' && !t.gemini?.called
+watch(TRACE_DIR, async (event, filename) => {
+  if (!filename?.endsWith('.json')) return
+  if (pending.has(filename)) return
+  pending.add(filename)
 
-if (matched) {
-  console.log(c.bold(c.green('✓  Matches described workflow.')))
-} else {
-  console.log(c.bold(c.red('✗  Does NOT match described workflow.')))
-}
-console.log()
+  // small delay to ensure the file is fully written before reading
+  setTimeout(async () => {
+    pending.delete(filename)
+    const t = await loadTrace(filename)
+    if (t) printTrace(t)
+  }, 80)
+})

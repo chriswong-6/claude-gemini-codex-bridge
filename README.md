@@ -190,55 +190,51 @@ Live tests call the real `gemini` and `codex` binaries and verify:
 
 These tests take **30–60 seconds** due to real CLI latency.
 
-### Trace: verify real data flow
+### Trace: real-time data flow monitor
 
-After using Claude Code normally with the bridge installed, run:
+Run in a separate terminal before using Claude Code:
 
 ```bash
 aitools trace
 ```
 
-Shows whether the last real invocation matched the described pipeline.
+The script watches the trace directory. Every time the bridge fires,
+the result appears automatically within ~100ms — no manual re-running needed.
 
 **Small file (pass-through):**
 
 ```
-Invocation
-  Time   : 31/3/2026, 14:32:05
-  Tool   : Read
-  Files  : 1
-  Reason : ~8k tokens within Claude limit
+────────────────────────────────────────────────────
+  14:32:05  ·  Read  ·  1 file(s)
+────────────────────────────────────────────────────
 
-Described workflow
-  Claude ─→ tool call ─→ Claude handles directly
+  Described:
+  Claude ─→ Claude (small file, direct)
 
-Actual workflow
-  ✓ Claude ─→ passed through to Claude
+  Actual:
+  Claude ─→ Claude ✓
 
-✓  Matches described workflow.
+  ✓  Matches described workflow
 ```
 
 **Large file (full pipeline):**
 
 ```
-Invocation
-  Time   : 31/3/2026, 14:35:12
-  Tool   : Read
-  Files  : 1
-  Reason : ~84k tokens exceeds Claude limit
+────────────────────────────────────────────────────
+  14:35:12  ·  Read  ·  1 file(s)
+────────────────────────────────────────────────────
 
-Described workflow
-  Claude ─→ Gemini ─→ Codex ─→ result back to Claude
+  Described:
+  Claude ─→ Gemini ─→ Codex ─→ Claude
 
-Actual workflow
-  Claude ─→ Gemini ✓ ─→ Codex ✓ ─→ result → Claude ✓
+  Actual:
+  Claude ─→ Gemini ✓ ─→ Codex ✓ ─→ Claude ✓
 
-  Gemini : ok   1 file(s) → 3241 chars  (12043ms)
-  Codex  : ok   3241 chars in → 891 chars out  (8120ms)
-  Cache  : miss
-  Total  : 20163ms
+  Gemini  ok   1 file(s) → 3241 chars  (12043ms)
+  Codex   ok   3241 chars in → 891 chars out  (8120ms)
+  Cache   miss    Total 20163ms
 
-✓  Matches described workflow.
+  ✓  Matches described workflow
 ```
 
 Traces are stored at `~/.claude-gemini-codex-bridge/traces/`.
