@@ -1,0 +1,22 @@
+{
+  "name": "claude-gemini-codex-bridge",
+  "version": "1.0.0",
+  "description": "Claude Code hook that routes large-context tool calls through Gemini then Codex sequentially",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "install-hook": "bash install.sh",
+    "uninstall-hook": "bash uninstall.sh",
+    "test": "node --test hooks/lib/*.test.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "gemini",
+    "codex",
+    "hook",
+    "long-context"
+  ],
+  "license": "MIT"
+}

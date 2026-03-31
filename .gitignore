@@ -1,0 +1,7 @@
+node_modules/
+~/.claude-gemini-codex-bridge/
+*.log
+.env
+.env.*
+cache/
+logs/

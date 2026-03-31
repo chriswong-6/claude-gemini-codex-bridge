@@ -1,0 +1,35 @@
+{
+  "routing": {
+    "claudeTokenLimit": 50000,
+    "geminiTokenLimit": 800000,
+    "maxTotalSizeBytes": 10485760,
+    "minFilesForTask": 3,
+    "charsPerToken": 4
+  },
+  "gemini": {
+    "model": "gemini-1.5-pro",
+    "timeoutMs": 30000,
+    "rateLimitMs": 1000
+  },
+  "codex": {
+    "approvalMode": "suggest",
+    "timeoutMs": 60000
+  },
+  "cache": {
+    "ttlSeconds": 3600,
+    "dir": null
+  },
+  "security": {
+    "excludePatterns": [
+      "*.secret", "*.key", "*.env", "*.password",
+      "*.token", "*.pem", "*.p12", ".env*"
+    ],
+    "blockedPaths": [
+      "/etc/", "/usr/", "/bin/", "/sbin/", "/root/"
+    ]
+  },
+  "debug": {
+    "level": 0,
+    "logDir": null
+  }
+}
