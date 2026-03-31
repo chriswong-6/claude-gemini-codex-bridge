@@ -34,7 +34,7 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 | Node.js ≥ 18 | built-in `fetch` required |
 | Claude Code CLI | the host that runs the hook — **must be installed manually** |
 | `gemini` CLI | Google Gemini CLI — **must be installed manually** |
-| `codex` CLI | OpenAI Codex CLI — **must be installed manually** (optional, falls back to Gemini-only) |
+| `codex` CLI | OpenAI Codex CLI — **must be installed manually** |
 | `jq` | for `install.sh` |
 
 > **None of these tools are installed automatically by this project.**
@@ -62,7 +62,7 @@ npm install -g @openai/codex
 codex login          # sign in with your OpenAI account
 ```
 
-If Codex is not installed, the bridge falls back to returning the Gemini summary alone.
+Codex is required. Without it the pipeline is incomplete and `install.sh` will exit with an error.
 
 ## Step 2 — Install the bridge
 

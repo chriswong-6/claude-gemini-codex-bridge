@@ -26,14 +26,19 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
   exit 1
 fi
 
-# Warn if external binaries are missing (non-fatal — user may install them later)
+# Check required external CLIs
 if ! command -v gemini &>/dev/null; then
-  echo "WARN: 'gemini' CLI not found in PATH."
-  echo "      Install it and run 'gemini auth login' before using the bridge."
-  echo "      See: https://github.com/google-gemini/gemini-cli"
+  echo "ERROR: 'gemini' CLI not found in PATH." >&2
+  echo "       Install: npm install -g @google/gemini-cli" >&2
+  echo "       Then run: gemini auth login" >&2
+  exit 1
 fi
+
 if ! command -v codex &>/dev/null; then
-  echo "WARN: 'codex' binary not found in PATH. Codex step will fall back to Gemini-only."
+  echo "ERROR: 'codex' CLI not found in PATH." >&2
+  echo "       Install: npm install -g @openai/codex" >&2
+  echo "       Then run: codex login" >&2
+  exit 1
 fi
 
 # Create settings file if it doesn't exist

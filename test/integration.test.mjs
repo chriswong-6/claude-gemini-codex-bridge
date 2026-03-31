@@ -179,7 +179,7 @@ describe('workflow: caching', () => {
 })
 
 describe('workflow: graceful degradation', () => {
-  test('Codex unavailable → fallback to Gemini summary (still blocks)', async (t) => {
+  test('Codex unavailable → approve (pipeline incomplete, let Claude handle it)', async (t) => {
     if (LIVE) { t.skip('degradation test is mock-only'); return }
 
     const input = makeToolCall('Read', { file_path: join(FIXTURES, 'large-file.js') })
@@ -193,8 +193,8 @@ describe('workflow: graceful degradation', () => {
     assert.equal(exitCode, 0)
 
     const out = JSON.parse(stdout)
-    assert.equal(out.decision, 'block', 'should still block with Gemini-only fallback')
-    assert.ok(out.reason.includes(MOCK_GEMINI_RESPONSE), 'fallback should include Gemini summary')
+    assert.equal(out.decision, 'approve',
+      'Codex is required — missing Codex should degrade to approve, not return partial result')
   })
 
   test('Gemini CLI missing → approve (let Claude handle it)', async (t) => {

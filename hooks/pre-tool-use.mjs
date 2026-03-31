@@ -154,16 +154,20 @@ async function main() {
       fallback:    false,
     }
   } catch (err) {
-    logError(`Codex step failed: ${err.message} — falling back to Gemini summary`)
-    codexResult = `[Codex unavailable — Gemini summary below]\n\n${geminiSummary}`
+    logError(`Codex step failed: ${err.message}`)
     trace.codex = {
-      called:      true,
-      inputChars:  geminiSummary.length,
-      outputChars: codexResult.length,
-      latencyMs:   Date.now() - tCodex,
-      error:       err.message,
-      fallback:    true,
+      called:    true,
+      inputChars: geminiSummary.length,
+      outputChars: 0,
+      latencyMs: Date.now() - tCodex,
+      error:     err.message,
+      fallback:  false,
     }
+    trace.finalDecision  = 'approve'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
+    approve()
+    return
   }
 
   // 6. Cache and return
