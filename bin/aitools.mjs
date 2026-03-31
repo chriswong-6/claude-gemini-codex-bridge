@@ -44,9 +44,7 @@ if (command === 'trace') {
   console.log('Commands:')
   console.log('  start          Run all tests and diagnostics (mock, no auth needed)')
   console.log('  live           Run live tests against real CLIs (auth required)')
-  console.log('  trace          Check the latest real invocation trace')
-  console.log('  trace --all    Check all traces from today')
-  console.log('  trace --watch  Watch for new traces in real-time')
+  console.log('  trace          Check if the last real invocation matched the described workflow')
   process.exit(1)
 
 } else {

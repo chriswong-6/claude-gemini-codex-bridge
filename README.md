@@ -192,36 +192,53 @@ These tests take **30–60 seconds** due to real CLI latency.
 
 ### Trace: verify real data flow
 
-After using Claude Code normally (with the hook installed), run:
+After using Claude Code normally with the bridge installed, run:
 
 ```bash
 aitools trace
 ```
 
-This reads the last real invocation and validates whether the data actually flowed through the pipeline as described:
+Shows whether the last real invocation matched the described pipeline.
+
+**Small file (pass-through):**
 
 ```
-── 14:32:05  Read  (1 file(s)) ──────────────────
-  Claude → hook → Gemini → Codex → result → Claude
+Invocation
+  Time   : 31/3/2026, 14:32:05
+  Tool   : Read
+  Files  : 1
+  Reason : ~8k tokens within Claude limit
 
-  ✓  Tool call received               Read: Read file: src/large-module.js
-  ✓  Routing decision made            ~84k tokens exceeds Claude limit
-  ✓  Large file: Gemini called first  1 file(s) → 3241 chars summary (12043ms)
-  ✓  Gemini produced a summary        3241 chars
-  ✓  Codex called after Gemini        3241 chars in → 891 chars out (8120ms)
-  ✓  Codex received Gemini summary    3241 chars passed through correctly
-  ✓  Result injected back into Claude blocked with 891 char result
-  ✓  Cache                            miss — pipeline executed
-  ✓  Total latency                    20163ms
+Described workflow
+  Claude ─→ tool call ─→ Claude handles directly
 
-  Pipeline ran as described.
+Actual workflow
+  ✓ Claude ─→ passed through to Claude
+
+✓  Matches described workflow.
 ```
 
-Other options:
+**Large file (full pipeline):**
 
-```bash
-aitools trace --all    # show all traces from today
-aitools trace --watch  # auto-refresh every 2s as new invocations arrive
+```
+Invocation
+  Time   : 31/3/2026, 14:35:12
+  Tool   : Read
+  Files  : 1
+  Reason : ~84k tokens exceeds Claude limit
+
+Described workflow
+  Claude ─→ Gemini ─→ Codex ─→ result back to Claude
+
+Actual workflow
+  Claude ─→ Gemini ✓ ─→ Codex ✓ ─→ result → Claude ✓
+
+  Gemini : ok   1 file(s) → 3241 chars  (12043ms)
+  Codex  : ok   3241 chars in → 891 chars out  (8120ms)
+  Cache  : miss
+  Total  : 20163ms
+
+✓  Matches described workflow.
 ```
 
 Traces are stored at `~/.claude-gemini-codex-bridge/traces/`.
