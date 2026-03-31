@@ -208,10 +208,8 @@ async function checkHookScript() {
   const hookPath = join(ROOT, 'hooks', 'pre-tool-use.mjs')
   try {
     await access(hookPath, constants.R_OK)
-    // Verify it parses without syntax errors
-    await exec('node', ['--input-type=module', '--eval',
-      `import '${hookPath}'; /* dry import */`
-    ]).catch(() => {})  // import side-effects are expected to error — we just want parse check
+    // Verify it parses without syntax errors (--check parses only, never executes)
+    await exec('node', ['--check', hookPath])
     record('pre-tool-use.mjs', 'pass', hookPath)
     return true
   } catch (err) {
