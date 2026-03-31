@@ -129,7 +129,7 @@ claude-gemini-codex-bridge — component check
   ✓  cache.mjs                        cache dir: ~/.claude-gemini-codex-bridge/cache
 
   External dependencies
-  !  codex binary                     'codex' not found — will fallback to Gemini-only
+  ✗  codex binary                     'codex' not found — required, install: npm install -g @openai/codex
   –  Gemini API connectivity          pass --live to test
 ```
 
@@ -209,7 +209,7 @@ Live tests call the real `gemini` and `codex` binaries and verify:
 | Result contains both sections | `Gemini Context Summary` and `Codex Analysis` present |
 | Gemini summary passed to Codex | Result does not contain raw fixture lines (summarisation verified) |
 | Cache hit on second call | Second call completes in < 500ms |
-| Codex unavailable fallback | Gemini-only result returned when codex binary is missing |
+| Codex unavailable | Hook degrades to approve, Claude handles directly (pipeline incomplete) |
 
 These tests take **30–60 seconds** due to real CLI latency.
 

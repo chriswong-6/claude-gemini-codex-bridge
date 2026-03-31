@@ -199,7 +199,7 @@ async function checkCodexBin(cfg) {
     record('codex binary', 'pass', `found: ${bin}`)
     return true
   } catch {
-    record('codex binary', 'warn', `'${bin}' not found — Codex step will fallback to Gemini-only`)
+    record('codex binary', 'fail', `'${bin}' not found — required: npm install -g @openai/codex`)
     return false
   }
 }
