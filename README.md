@@ -32,18 +32,41 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 | Dependency | Notes |
 |---|---|
 | Node.js ≥ 18 | built-in `fetch` required |
-| `gemini` CLI | Google Gemini CLI — auth handled by the CLI, no API key needed |
-| `codex` CLI | `npm install -g @openai/codex` — optional, falls back to Gemini-only |
+| Claude Code CLI | the host that runs the hook — **must be installed manually** |
+| `gemini` CLI | Google Gemini CLI — **must be installed manually** |
+| `codex` CLI | OpenAI Codex CLI — **must be installed manually** (optional, falls back to Gemini-only) |
 | `jq` | for `install.sh` |
 
-## Installation
+> **None of these tools are installed automatically by this project.**
+> You must install and authenticate all three before running `install.sh`.
+
+## Step 1 — Install the tools manually
+
+### Claude Code
+
+Download and install from [claude.ai/download](https://claude.ai/download), then sign in with your Anthropic account.
+
+Claude Code creates `~/.claude/settings.json` on first run — this file is required by `install.sh`.
+
+### Gemini CLI
 
 ```bash
-# 1. Install and authenticate the Gemini CLI
-#    https://github.com/google-gemini/gemini-cli
-gemini auth login
+npm install -g @google/gemini-cli
+gemini auth login    # sign in with your Google account
+```
 
-# 2. Install the bridge
+### Codex CLI (optional)
+
+```bash
+npm install -g @openai/codex
+codex login          # sign in with your OpenAI account
+```
+
+If Codex is not installed, the bridge falls back to returning the Gemini summary alone.
+
+## Step 2 — Install the bridge
+
+```bash
 git clone https://github.com/chriswong-6/claude-gemini-codex-bridge
 cd claude-gemini-codex-bridge
 bash install.sh
@@ -51,7 +74,7 @@ bash install.sh
 
 The script adds a `PreToolUse` hook entry to `~/.claude/settings.json`.
 
-## Uninstall
+## Uninstall the bridge
 
 ```bash
 bash uninstall.sh
