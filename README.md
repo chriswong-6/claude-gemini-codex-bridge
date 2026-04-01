@@ -120,20 +120,31 @@ The bridge triggers automatically when Claude reads a file exceeding the token t
 
 ### Manual review commands
 
-Two slash commands are available inside Claude Code for on-demand review of **any** file, regardless of size:
+Two slash commands are available inside Claude Code. Each supports three usage patterns:
 
 | Command | Description |
 |---|---|
-| `/bridge-review <file>` | Standard code review — bugs, risks, quality issues |
-| `/bridge-adversarial <file>` | Adversarial review — actively challenges design decisions and surfaces failure paths |
+| `/bridge-review <file\|dir>` | Standard code review — bugs, risks, quality issues |
+| `/bridge-adversarial <file\|dir>` | Adversarial review — actively challenges design decisions and surfaces failure paths |
 
-Both commands run the full Gemini → Codex pipeline and return a structured report.
-
-**Example:**
+**One-time review** (bridge stays off after):
 ```
 /bridge-review src/auth/middleware.js
 /bridge-adversarial src/payments/processor.js
 ```
+
+**Enable auto mode** (all large files in this session are reviewed automatically):
+```
+/bridge-review on
+/bridge-adversarial on
+```
+
+**Disable** (stop auto review):
+```
+/bridge-review off
+```
+
+> **Session behaviour:** every new Claude Code window starts with bridge mode **off** (reset by `SessionStart` hook). Enabling `on` in one window does not affect other windows.
 
 ### Adjusting the token threshold
 
