@@ -17,6 +17,7 @@ import { initLogger, log }       from './lib/logger.mjs'
 import { summariseWithGemini }   from './lib/gemini.mjs'
 import { analyseWithCodex }      from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
+import { writeTrace }            from './lib/tracer.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -101,24 +102,47 @@ async function main() {
   const config = await loadConfig()
   initLogger(config.debug.level, config.debug.logDir)
 
-  const toolName      = 'Read'
+  const toolName       = 'Read'
   const originalPrompt = mode === 'adversarial'
     ? 'Adversarial review — find every reason this code should not ship.'
     : 'Code review — analyse for bugs, risks, and quality issues.'
   const cwd = process.cwd()
+  const t0  = Date.now()
+
+  const trace = {
+    timestamp:     new Date().toISOString(),
+    toolName,
+    filePaths,
+    description:   `manual:${mode}`,
+    routing:       { delegate: true, reason: `manual ${mode} command` },
+    cacheHit:      false,
+    gemini:        { called: false, inputFiles: filePaths.length, outputChars: 0, latencyMs: 0, error: null },
+    codex:         { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
+    finalDecision: '',
+    totalLatencyMs: 0,
+  }
 
   const cacheKey = await buildCacheKey(filePaths, `${mode}:${originalPrompt}`)
   const cached   = await getCached(cacheKey, config)
   if (cached) {
     log(1, 'returning cached result')
+    trace.cacheHit      = true
+    trace.finalDecision = 'block'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
     process.stdout.write(cached + '\n')
     return
   }
 
   log(1, `running pipeline mode=${mode} on ${filePaths.length} file(s)`)
 
+  const tGemini = Date.now()
   const geminiSummary = await summariseWithGemini(toolName, filePaths, originalPrompt, config)
-  const codexResult   = await analyseWithCodex(geminiSummary, originalPrompt, toolName, cwd, config, mode)
+  trace.gemini = { called: true, inputFiles: filePaths.length, outputChars: geminiSummary.length, latencyMs: Date.now() - tGemini, error: null }
+
+  const tCodex = Date.now()
+  const codexResult = await analyseWithCodex(geminiSummary, originalPrompt, toolName, cwd, config, mode)
+  trace.codex = { called: true, inputChars: geminiSummary.length, outputChars: codexResult.length, latencyMs: Date.now() - tCodex, error: null, fallback: false }
 
   const label  = mode === 'adversarial' ? 'Adversarial Review' : 'Code Review'
   const output = [
@@ -128,6 +152,10 @@ async function main() {
     `## Codex ${label}`,
     codexResult,
   ].join('\n')
+
+  trace.finalDecision  = 'block'
+  trace.totalLatencyMs = Date.now() - t0
+  await writeTrace(trace, config)
 
   await setCached(cacheKey, output, config)
   process.stdout.write(output + '\n')

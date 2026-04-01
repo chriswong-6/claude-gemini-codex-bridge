@@ -38,10 +38,15 @@ function printTrace(t) {
   console.log(c.bold('─'.repeat(52)))
 
   // described workflow
+  const isManual   = t.description?.startsWith('manual:')
+  const manualMode = isManual ? t.description.slice('manual:'.length) : null
+
   console.log()
   console.log(c.dim('  Described:'))
   if (!delegated) {
-    console.log(`  Claude ─→ Claude ${c.dim('(small file, direct)')}`  )
+    console.log(`  Claude ─→ Claude ${c.dim('(small file, direct)')}`)
+  } else if (isManual) {
+    console.log(`  ${c.bold(`[manual: ${manualMode}]`)}  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   } else {
     console.log(`  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   }
