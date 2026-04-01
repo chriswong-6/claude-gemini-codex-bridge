@@ -26,6 +26,7 @@ import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
 import { writeTrace }                          from './lib/tracer.mjs'
 import { addSessionFile }                      from './lib/session-files.mjs'
 import { setGeminiUsed }                       from './lib/gemini-flag.mjs'
+import { getPendingReview }                    from './lib/pending-review.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,9 +100,19 @@ async function main() {
     await addSessionFile(toolInput.file_path)
   }
 
-  // 3. Routing decision — delegate if file(s) exceed the token threshold.
-  //    This fires regardless of bridge mode: large files always get Gemini context.
-  const { delegate, reason } = await shouldDelegate(toolName, trace.filePaths, config)
+  // 3. Routing decision — delegate if file(s) exceed the token threshold,
+  //    OR if a manual /bridge-review <path> command set the pending-review flag
+  //    (which forces Gemini regardless of file size).
+  const pendingReview = await getPendingReview()
+  let { delegate, reason } = await shouldDelegate(toolName, trace.filePaths, config)
+  if (!delegate && pendingReview) {
+    // Manual trigger: force Gemini even for small files
+    const SUPPORTED = new Set(['Read', 'Glob', 'Grep', 'Task'])
+    if (SUPPORTED.has(toolName)) {
+      delegate = true
+      reason   = `manual trigger (${pendingReview})`
+    }
+  }
   trace.routing = { delegate, reason }
   log(1, `delegate=${delegate} reason="${reason}"`)
 

@@ -5,3 +5,4 @@ node_modules/
 .env.*
 cache/
 logs/
+.DS_Store

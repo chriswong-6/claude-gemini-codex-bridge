@@ -18,6 +18,7 @@ import { initLogger, log }     from './lib/logger.mjs'
 import { getMode }             from './lib/mode.mjs'
 import { getSessionFiles, clearSessionFiles } from './lib/session-files.mjs'
 import { getGeminiUsed, clearGeminiUsed }     from './lib/gemini-flag.mjs'
+import { getPendingReview, clearPendingReview } from './lib/pending-review.mjs'
 import { summariseWithGemini } from './lib/gemini.mjs'
 import { analyseWithCodex }    from './lib/codex.mjs'
 import { writeTrace }          from './lib/tracer.mjs'
@@ -51,13 +52,15 @@ async function main() {
     }
   } catch {}
 
-  // Trigger conditions:
-  // - bridge mode is on (review/adversarial), OR
+  // Trigger conditions (any one of):
+  // - bridge mode is on (review/adversarial)
   // - Gemini was used this turn (file exceeded threshold, even with mode=off)
-  const mode        = await getMode()
-  const geminiUsed  = await getGeminiUsed()
+  // - A manual /bridge-review <path> command set the pending-review flag
+  const mode          = await getMode()
+  const geminiUsed    = await getGeminiUsed()
+  const pendingReview = await getPendingReview()
 
-  if (mode === 'off' && !geminiUsed) {
+  if (mode === 'off' && !geminiUsed && !pendingReview) {
     approve()
     return
   }
@@ -81,11 +84,17 @@ async function main() {
   // Clear NOW to prevent infinite review loop on next stop
   await clearSessionFiles()
   await clearGeminiUsed()
+  await clearPendingReview()
 
   log(1, `stop-review: reviewing ${files.length} modified file(s)`)
 
-  // When mode=off but Gemini ran (large file), use 'auto' label
-  const reviewMode = (mode === 'off' && geminiUsed) ? 'auto' : mode
+  // Determine review type:
+  // - mode=on → use mode value (review/adversarial)
+  // - mode=off + pending-review → use pending-review value (manual trigger)
+  // - mode=off + gemini-used → 'auto' (large file threshold)
+  const reviewMode = mode !== 'off'
+    ? mode
+    : (pendingReview ?? (geminiUsed ? 'auto' : 'review'))
 
   const originalPrompt = reviewMode === 'adversarial'
     ? 'Adversarial review — find every reason these code changes should not ship.'

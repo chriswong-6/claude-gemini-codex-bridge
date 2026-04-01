@@ -4,6 +4,7 @@ import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { getMode, setMode } from '../hooks/lib/mode.mjs'
+import { setPendingReview } from '../hooks/lib/pending-review.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -53,30 +54,24 @@ if (command === 'trace') {
     process.exit(1)
   }
 
-} else if (command === 'review' || command === 'adversarial') {
-  const rest = process.argv.slice(3)
-  if (rest.length === 0) {
-    console.error(`Usage: aitools ${command} <file|--text="..."> [file...]`)
+} else if (command === 'pending-review') {
+  const type = process.argv[3]
+  if (!['review', 'adversarial'].includes(type)) {
+    console.error(`Usage: aitools pending-review <review|adversarial>`)
     process.exit(1)
   }
-  const child = spawn('node', [
-    join(ROOT, 'hooks/bridge-run.mjs'),
-    `--mode=${command}`,
-    ...rest,
-  ], { cwd: ROOT, stdio: 'inherit' })
-  child.on('close', code => process.exit(code ?? 0))
-  child.on('error', err => { console.error(err.message); process.exit(1) })
+  await setPendingReview(type)
+  console.log(`Bridge: manual ${type} queued — next file read will go through Gemini → Claude → Codex`)
 
 } else if (!command || !commands[command]) {
   console.log('Usage: aitools <command>')
   console.log('')
   console.log('Commands:')
-  console.log('  start                   Run all tests and diagnostics (mock, no auth needed)')
-  console.log('  live                    Run live tests against real CLIs (auth required)')
-  console.log('  trace                   Check if the last real invocation matched the described workflow')
+  console.log('  start                          Run all tests and diagnostics (mock, no auth needed)')
+  console.log('  live                           Run live tests against real CLIs (auth required)')
+  console.log('  trace                          Check if the last real invocation matched the described workflow')
   console.log('  mode [review|adversarial|off]  Get or set bridge auto-trigger mode')
-  console.log('  review <file>           Run Gemini → Codex code review on a file (any size)')
-  console.log('  adversarial <file>      Run Gemini → Codex adversarial review on a file (any size)')
+  console.log('  pending-review <review|adversarial>  Queue a one-shot manual review for the next file read')
   process.exit(1)
 
 } else {
