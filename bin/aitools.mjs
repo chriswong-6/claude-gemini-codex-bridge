@@ -54,15 +54,15 @@ if (command === 'trace') {
   }
 
 } else if (command === 'review' || command === 'adversarial') {
-  const files = process.argv.slice(3)
-  if (files.length === 0) {
-    console.error(`Usage: aitools ${command} <file> [file...]`)
+  const rest = process.argv.slice(3)
+  if (rest.length === 0) {
+    console.error(`Usage: aitools ${command} <file|--text="..."> [file...]`)
     process.exit(1)
   }
   const child = spawn('node', [
     join(ROOT, 'hooks/bridge-run.mjs'),
     `--mode=${command}`,
-    ...files,
+    ...rest,
   ], { cwd: ROOT, stdio: 'inherit' })
   child.on('close', code => process.exit(code ?? 0))
   child.on('error', err => { console.error(err.message); process.exit(1) })
