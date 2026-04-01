@@ -1,6 +1,6 @@
 {
   "routing": {
-    "claudeTokenLimit": 50000,
+    "claudeTokenLimit": 1000,
     "geminiTokenLimit": 800000,
     "maxTotalSizeBytes": 10485760,
     "minFilesForTask": 3,
