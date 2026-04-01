@@ -23,4 +23,9 @@ UPDATED=$(jq --arg cmd "node $HOOK_SCRIPT" '
 ' "$SETTINGS")
 
 echo "$UPDATED" > "$SETTINGS"
-echo "Uninstalled: claude-gemini-codex-bridge hook"
+
+# Remove slash commands
+rm -f "$HOME/.claude/commands/bridge-review.md"
+rm -f "$HOME/.claude/commands/bridge-adversarial.md"
+
+echo "Uninstalled: claude-gemini-codex-bridge hook and slash commands"

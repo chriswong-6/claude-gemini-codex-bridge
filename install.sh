@@ -71,8 +71,18 @@ UPDATED=$(jq --argjson hook "$HOOK_ENTRY" '
 
 echo "$UPDATED" > "$SETTINGS"
 
+# Install slash commands into ~/.claude/commands/
+COMMANDS_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/commands"
+COMMANDS_DST="$HOME/.claude/commands"
+mkdir -p "$COMMANDS_DST"
+cp "$COMMANDS_SRC/bridge-review.md"      "$COMMANDS_DST/bridge-review.md"
+cp "$COMMANDS_SRC/bridge-adversarial.md" "$COMMANDS_DST/bridge-adversarial.md"
+
 echo "Installed: claude-gemini-codex-bridge hook"
 echo "Hook path: $HOOK_SCRIPT"
+echo "Slash commands installed:"
+echo "  /bridge-review <file>      — code review via Gemini → Codex"
+echo "  /bridge-adversarial <file> — adversarial review via Gemini → Codex"
 echo ""
 echo "Required external tools:"
 echo "  gemini   — Google Gemini CLI  (install: https://github.com/google-gemini/gemini-cli)"

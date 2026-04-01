@@ -38,13 +38,29 @@ if (command === 'trace') {
   child.on('close', code => process.exit(code ?? 0))
   child.on('error', err => { console.error(err.message); process.exit(1) })
 
+} else if (command === 'review' || command === 'adversarial') {
+  const files = process.argv.slice(3)
+  if (files.length === 0) {
+    console.error(`Usage: aitools ${command} <file> [file...]`)
+    process.exit(1)
+  }
+  const child = spawn('node', [
+    join(ROOT, 'hooks/bridge-run.mjs'),
+    `--mode=${command}`,
+    ...files,
+  ], { cwd: ROOT, stdio: 'inherit' })
+  child.on('close', code => process.exit(code ?? 0))
+  child.on('error', err => { console.error(err.message); process.exit(1) })
+
 } else if (!command || !commands[command]) {
   console.log('Usage: aitools <command>')
   console.log('')
   console.log('Commands:')
-  console.log('  start          Run all tests and diagnostics (mock, no auth needed)')
-  console.log('  live           Run live tests against real CLIs (auth required)')
-  console.log('  trace          Check if the last real invocation matched the described workflow')
+  console.log('  start              Run all tests and diagnostics (mock, no auth needed)')
+  console.log('  live               Run live tests against real CLIs (auth required)')
+  console.log('  trace              Check if the last real invocation matched the described workflow')
+  console.log('  review <file>      Run Gemini → Codex code review on a file (any size)')
+  console.log('  adversarial <file> Run Gemini → Codex adversarial review on a file (any size)')
   process.exit(1)
 
 } else {
