@@ -13,7 +13,7 @@
   },
   "codex": {
     "approvalMode": "suggest",
-    "timeoutMs": 60000
+    "timeoutMs": 180000
   },
   "cache": {
     "ttlSeconds": 3600,
