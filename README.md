@@ -36,9 +36,12 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 | `gemini` CLI | Google Gemini CLI — **must be installed manually** |
 | `codex` CLI | OpenAI Codex CLI — **must be installed manually** |
 | `jq` | for `install.sh` |
+| `pdftotext` | for PDF support — `brew install poppler` (optional but recommended) |
 
 > **None of these tools are installed automatically by this project.**
 > You must install and authenticate all three before running `install.sh`.
+>
+> **Note on PDF support:** gemini CLI ≥ 0.35 interprets `@` bytes in stdin as file-path references, which causes it to hang on binary PDF content. The bridge uses `pdftotext` (part of `poppler`) to extract clean text before sending to Gemini. Without it, PDFs are still processed via printable-string extraction but results may be limited for compressed PDFs.
 
 ## Step 1 — Install the tools manually
 
