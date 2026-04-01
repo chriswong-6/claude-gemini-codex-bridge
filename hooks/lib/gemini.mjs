@@ -7,9 +7,12 @@
  * No API key is required in this project.
  */
 
-import { spawn } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { readFile } from 'fs/promises'
+import { promisify } from 'util'
 import { log, logError } from './logger.mjs'
+
+const execFileAsync = promisify(execFile)
 
 // Rate-limit state (in-process)
 let _lastCallMs = 0
@@ -34,11 +37,33 @@ that could affect correctness.`
 
 async function readFileSafe(fp) {
   try {
-    // Read as latin1 (1 byte → 1 char, no inflation) then strip NUL bytes —
-    // the same behaviour as bash `$(cat file)`, which allows binary files like
-    // PDFs to be piped to gemini without hanging (text fragments survive intact).
+    // PDFs: extract actual text via pdftotext (decompress content streams).
+    // Falls back to binary strings extraction if pdftotext is not installed.
+    if (fp.toLowerCase().endsWith('.pdf')) {
+      try {
+        const { stdout } = await execFileAsync('pdftotext', [fp, '-'], { maxBuffer: 10 * 1024 * 1024 })
+        log(2, `pdftotext extracted ${stdout.length} chars from ${fp}`)
+        return `[PDF text extracted from: ${fp}]\n\n${stdout}`
+      } catch {
+        log(1, `pdftotext unavailable for ${fp}, falling back to binary strings extraction`)
+      }
+    }
+
     const raw = await readFile(fp, 'latin1')
-    return raw.replace(/\0/g, '')
+    const stripped = raw.replace(/\0/g, '')
+
+    // Binary detection: if >30% non-printable chars, extract readable strings
+    // (equivalent to the `strings` command).  This is what tkaufmann's bash
+    // bridge achieves implicitly — shell variable encoding drops binary bytes,
+    // leaving only the printable fragments that Gemini can parse.
+    const nonPrintable = (stripped.match(/[^\x09\x0a\x0d\x20-\x7e]/g) || []).length
+    if (stripped.length > 0 && nonPrintable / stripped.length > 0.3) {
+      const textChunks = stripped.match(/[\x20-\x7e\n\r\t]{6,}/g) || []
+      const extracted = textChunks.join('\n')
+      return `[Binary file — extracted readable text from: ${fp}]\n\n${extracted}`
+    }
+
+    return stripped
   } catch {
     return `[Could not read file: ${fp}]`
   }
