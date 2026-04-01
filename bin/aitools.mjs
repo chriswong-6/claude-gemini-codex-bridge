@@ -55,12 +55,13 @@ if (command === 'trace') {
   }
 
 } else if (command === 'pending-review') {
-  const type = process.argv[3]
+  const type  = process.argv[3]
+  const paths = process.argv.slice(4)
   if (!['review', 'adversarial'].includes(type)) {
-    console.error(`Usage: aitools pending-review <review|adversarial>`)
+    console.error(`Usage: aitools pending-review <review|adversarial> [path...]`)
     process.exit(1)
   }
-  await setPendingReview(type)
+  await setPendingReview(type, paths)
   console.log(`Bridge: manual ${type} queued — next file read will go through Gemini → Claude → Codex`)
 
 } else if (!command || !commands[command]) {

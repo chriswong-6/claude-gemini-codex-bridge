@@ -9,9 +9,13 @@
  *      a. Bridge mode is on (review/adversarial)
  *      b. Gemini was used this turn (large file summarised in pre-tool-use)
  *      c. Manual /bridge-review <path> set the pending-review flag
- *   4. If Claude modified files → Codex reviews them directly (no Gemini step)
- *   5. Return Codex analysis to Claude so it can improve its answer
- *   6. Clear all flags (prevents infinite loop on next stop)
+ *   4. Determine files to review:
+ *      - If Claude wrote/modified files this turn → review those (session files)
+ *      - Else if manual trigger with paths → review those paths (read-only analysis)
+ *      - Else → nothing to review, approve
+ *   5. Codex reviews file contents directly (no Gemini step)
+ *   6. Return Codex analysis to Claude so it can improve its answer
+ *   7. Clear all flags (prevents infinite loop on next stop)
  */
 
 import { loadConfig }          from './lib/config.mjs'
@@ -23,6 +27,8 @@ import { getPendingReview, clearPendingReview } from './lib/pending-review.mjs'
 import { analyseWithCodex }    from './lib/codex.mjs'
 import { writeTrace }          from './lib/tracer.mjs'
 import { stat, readFile }      from 'fs/promises'
+
+const MAX_CONTEXT_CHARS = 80000  // ~20k tokens — hard cap for Codex input
 
 function approve() {
   process.stdout.write(JSON.stringify({ decision: 'approve' }) + '\n')
@@ -40,15 +46,33 @@ async function readStdin() {
 
 async function readFilesAsContext(files) {
   const sections = []
+  let total = 0
   for (const fp of files) {
+    if (total >= MAX_CONTEXT_CHARS) {
+      sections.push(`### ${fp}\n_(omitted — context limit reached)_`)
+      continue
+    }
     try {
-      const content = await readFile(fp, 'utf8')
+      let content = await readFile(fp, 'utf8')
+      const remaining = MAX_CONTEXT_CHARS - total
+      if (content.length > remaining) {
+        content = content.slice(0, remaining) + '\n... (truncated)'
+      }
+      total += content.length
       sections.push(`### ${fp}\n\`\`\`\n${content}\n\`\`\``)
     } catch {
       sections.push(`### ${fp}\n_(unreadable)_`)
     }
   }
   return sections.join('\n\n')
+}
+
+async function filterExisting(paths) {
+  const result = []
+  for (const f of paths) {
+    try { await stat(f); result.push(f) } catch {}
+  }
+  return result
 }
 
 async function main() {
@@ -78,16 +102,16 @@ async function main() {
     return
   }
 
-  // Get files Claude modified this turn
-  const allFiles = await getSessionFiles()
-
-  // Filter to only files that actually exist
-  const files = []
-  for (const f of allFiles) {
-    try { await stat(f); files.push(f) } catch {}
-  }
+  // Determine files to review:
+  // Priority 1: files Claude wrote/modified this turn (session files)
+  // Priority 2: paths from manual /bridge-review <path> command
+  const sessionFiles = await filterExisting(await getSessionFiles())
+  const files = sessionFiles.length > 0
+    ? sessionFiles
+    : await filterExisting(pendingReview?.paths ?? [])
 
   if (files.length === 0) {
+    await clearSessionFiles()
     await clearGeminiUsed()
     await clearPendingReview()
     approve()
@@ -99,16 +123,17 @@ async function main() {
   await clearGeminiUsed()
   await clearPendingReview()
 
-  log(1, `stop-review: reviewing ${files.length} modified file(s) with Codex`)
+  log(1, `stop-review: reviewing ${files.length} file(s) with Codex`)
 
   // Determine review type:
   // - mode=on → use mode value (review/adversarial)
-  // - mode=off + pending-review → use pending-review value (manual trigger)
+  // - mode=off + pending-review → use pending-review type (manual trigger)
   // - mode=off + gemini-used → 'auto' (large file threshold)
   const reviewMode = mode !== 'off'
     ? mode
-    : (pendingReview ?? (geminiUsed ? 'auto' : 'review'))
+    : (pendingReview?.type ?? (geminiUsed ? 'auto' : 'review'))
 
+  const reviewSource = sessionFiles.length > 0 ? 'claude-writes' : 'manual-paths'
   const originalPrompt = reviewMode === 'adversarial'
     ? 'Adversarial review — find every reason these code changes should not ship.'
     : 'Code review — analyse the changes made in this turn for bugs, risks, and quality issues.'
@@ -119,7 +144,7 @@ async function main() {
     toolName:       'Stop',
     filePaths:      files,
     description:    `post-turn:${reviewMode}`,
-    routing:        { delegate: true, reason: pendingReview ? `manual:${pendingReview}` : (geminiUsed ? 'gemini-used-this-turn' : 'mode-on') },
+    routing:        { delegate: true, reason: pendingReview ? `manual:${pendingReview.type}:${reviewSource}` : (geminiUsed ? 'gemini-used-this-turn' : 'mode-on') },
     cacheHit:       false,
     gemini:         { called: false, inputFiles: 0, outputChars: 0, latencyMs: 0, error: null },
     codex:          { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
@@ -128,7 +153,6 @@ async function main() {
   }
 
   try {
-    // Read file contents directly — no Gemini step in Stop hook
     const fileContents = await readFilesAsContext(files)
 
     const tCodex = Date.now()

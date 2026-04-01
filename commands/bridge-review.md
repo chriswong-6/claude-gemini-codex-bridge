@@ -16,7 +16,7 @@ CASE 2: $ARGUMENTS equals exactly the word "off"
 → STOP.
 
 CASE 3: $ARGUMENTS is a non-empty file or directory path
-→ Run this bash command: aitools pending-review review
+→ Run this bash command: aitools pending-review review "$ARGUMENTS"
 → Then say: "Manual review queued for: $ARGUMENTS. Please read and analyse the code at that path now."
 → Then use your Read/Glob tools to read the files at $ARGUMENTS and give your analysis.
 → STOP.

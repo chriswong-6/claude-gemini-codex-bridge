@@ -53,7 +53,7 @@ function printTrace(t) {
     const postLabel = postMode === 'auto'
       ? '[post-turn: auto — gemini threshold]'
       : `[post-turn: ${postMode}]`
-    console.log(`  ${c.bold(postLabel)}  Claude ─→ Gemini ─→ Codex ─→ Claude (stop review)`)
+    console.log(`  ${c.bold(postLabel)}  Claude ─→ Codex ─→ Claude (stop review)`)
   } else {
     console.log(`  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   }
@@ -65,10 +65,22 @@ function printTrace(t) {
     const ok = t.finalDecision === 'approve' && !t.gemini?.called
     console.log(`  Claude ─→ ${ok ? c.green('Claude ✓') : c.red('unexpected: ' + t.finalDecision)}`)
   } else if (t.cacheHit) {
-    // Cache hit: Gemini/Codex were not called — that is correct behaviour
     console.log(`  Claude ─→ ${c.green('Cache ✓')} ─→ ${c.green('Claude ✓')}`)
     console.log()
     console.log(`  Cache   ${c.green('hit')}    Total ${c.dim(t.totalLatencyMs + 'ms')}`)
+  } else if (isPostTurn) {
+    // Post-turn: Codex only (no Gemini)
+    const codexOk  = t.codex?.called && !t.codex?.error
+    const resultOk = t.finalDecision === 'block'
+    const x = codexOk  ? c.green('Codex ✓') : (t.codex?.fallback ? c.yellow('Codex ⚠') : c.red('Codex ✗'))
+    const r = resultOk ? c.green('Claude ✓') : c.red('failed ✗')
+    console.log(`  Claude ─→ ${x} ─→ ${r}`)
+    console.log()
+    if (t.codex?.called) {
+      const s = codexOk ? c.green('ok') : (t.codex.fallback ? c.yellow('fallback') : c.red(t.codex.error))
+      console.log(`  Codex   ${s}  ${c.dim(`${t.codex.inputChars} chars in → ${t.codex.outputChars} chars out  (${t.codex.latencyMs}ms)`)}`)
+    }
+    console.log(`  Total ${c.dim(t.totalLatencyMs + 'ms')}`)
   } else {
     const geminiOk = t.gemini?.called && !t.gemini?.error
     const codexOk  = t.codex?.called  && !t.codex?.error
@@ -93,10 +105,12 @@ function printTrace(t) {
   }
 
   // verdict
-  const matched = delegated
-    ? (t.cacheHit && t.finalDecision === 'block') ||
-      (t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block')
-    : t.finalDecision === 'approve' && !t.gemini?.called
+  const matched = isPostTurn
+    ? t.codex?.called && !t.codex?.error && t.finalDecision === 'block'
+    : delegated
+      ? (t.cacheHit && t.finalDecision === 'block') ||
+        (t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block')
+      : t.finalDecision === 'approve' && !t.gemini?.called
 
   console.log()
   if (matched) {
