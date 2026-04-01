@@ -38,8 +38,10 @@ function printTrace(t) {
   console.log(c.bold('─'.repeat(52)))
 
   // described workflow
-  const isManual   = t.description?.startsWith('manual:')
-  const manualMode = isManual ? t.description.slice('manual:'.length) : null
+  const isManual    = t.description?.startsWith('manual:')
+  const isPostTurn  = t.description?.startsWith('post-turn:')
+  const manualMode  = isManual   ? t.description.slice('manual:'.length)    : null
+  const postMode    = isPostTurn ? t.description.slice('post-turn:'.length) : null
 
   console.log()
   console.log(c.dim('  Described:'))
@@ -47,6 +49,8 @@ function printTrace(t) {
     console.log(`  Claude ─→ Claude ${c.dim('(small file, direct)')}`)
   } else if (isManual) {
     console.log(`  ${c.bold(`[manual: ${manualMode}]`)}  Claude ─→ Gemini ─→ Codex ─→ Claude`)
+  } else if (isPostTurn) {
+    console.log(`  ${c.bold(`[post-turn: ${postMode}]`)}  Claude ─→ Gemini ─→ Codex ─→ Claude (stop review)`)
   } else {
     console.log(`  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   }

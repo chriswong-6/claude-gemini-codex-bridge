@@ -16,6 +16,7 @@ import { getMode }             from './lib/mode.mjs'
 import { getSessionFiles, clearSessionFiles } from './lib/session-files.mjs'
 import { summariseWithGemini } from './lib/gemini.mjs'
 import { analyseWithCodex }    from './lib/codex.mjs'
+import { writeTrace }          from './lib/tracer.mjs'
 import { stat }                from 'fs/promises'
 
 function approve() {
@@ -76,9 +77,32 @@ async function main() {
     ? 'Adversarial review — find every reason these code changes should not ship.'
     : 'Code review — analyse the changes made in this turn for bugs, risks, and quality issues.'
 
+  const t0 = Date.now()
+  const trace = {
+    timestamp:      new Date().toISOString(),
+    toolName:       'Stop',
+    filePaths:      files,
+    description:    `post-turn:${mode}`,
+    routing:        { delegate: true, reason: 'stop-review hook' },
+    cacheHit:       false,
+    gemini:         { called: false, inputFiles: files.length, outputChars: 0, latencyMs: 0, error: null },
+    codex:          { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
+    finalDecision:  '',
+    totalLatencyMs: 0,
+  }
+
   try {
+    const tGemini = Date.now()
     const geminiSummary = await summariseWithGemini('Stop', files, originalPrompt, config)
-    const codexResult   = await analyseWithCodex(geminiSummary, originalPrompt, 'Stop', cwd, config, mode)
+    trace.gemini = { called: true, inputFiles: files.length, outputChars: geminiSummary.length, latencyMs: Date.now() - tGemini, error: null }
+
+    const tCodex = Date.now()
+    const codexResult = await analyseWithCodex(geminiSummary, originalPrompt, 'Stop', cwd, config, mode)
+    trace.codex = { called: true, inputChars: geminiSummary.length, outputChars: codexResult.length, latencyMs: Date.now() - tCodex, error: null, fallback: false }
+
+    trace.finalDecision  = 'block'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
 
     const fileNames = files.map(f => f.split('/').pop()).join(', ')
     const label     = mode === 'adversarial' ? 'Adversarial Review' : 'Code Review'
@@ -100,6 +124,9 @@ async function main() {
   } catch (err) {
     // Review failed — don't block Claude from finishing
     log(1, `stop-review failed: ${err.message}`)
+    trace.finalDecision  = 'approve'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
     approve()
   }
 }
