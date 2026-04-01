@@ -24,7 +24,6 @@ import { summariseWithGemini }               from './lib/gemini.mjs'
 import { analyseWithCodex }                  from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
 import { writeTrace }                        from './lib/tracer.mjs'
-import { promptDegradation }                from './lib/prompt.mjs'
 import { getMode }                           from './lib/mode.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -143,22 +142,15 @@ async function main() {
   } catch (err) {
     logError(`Gemini step failed: ${err.message}`)
     trace.gemini = { called: true, inputFiles: trace.filePaths.length, outputChars: 0, latencyMs: Date.now() - tGemini, error: err.message }
-
-    const accepted = await promptDegradation('Gemini', 'Claude will handle the file directly (no summarisation)')
-    if (accepted === null || accepted === true) {
-      // non-interactive (null) or user accepted → approve
-      trace.finalDecision  = 'approve'
-      trace.totalLatencyMs = Date.now() - t0
-      await writeTrace(trace, config)
-      approve()
-    } else {
-      // user declined → block with error
-      const reason = `Gemini is unavailable: ${err.message}\nPipeline aborted. Retry after fixing Gemini authentication.`
-      trace.finalDecision  = 'block'
-      trace.totalLatencyMs = Date.now() - t0
-      await writeTrace(trace, config)
-      block(reason)
-    }
+    trace.finalDecision  = 'block'
+    trace.totalLatencyMs = Date.now() - t0
+    await writeTrace(trace, config)
+    block(
+      `⚠️ Bridge pipeline failed — Gemini is unavailable.\n\nError: ${err.message}\n\n` +
+      `The file was not processed by the bridge. Choose one of:\n` +
+      `• Run \`/bridge-review off\` to disable auto-review, then retry\n` +
+      `• Fix Gemini authentication (\`gemini auth login\`) and retry`
+    )
     return
   }
 
@@ -186,30 +178,20 @@ async function main() {
       fallback:    false,
     }
 
-    const accepted = await promptDegradation('Codex', 'Gemini summary will be returned without Codex deep-analysis')
-    if (accepted === true) {
-      // user accepted → return Gemini-only result
-      const output = formatOutput(geminiSummary, `[Codex unavailable: ${err.message}]`, toolName, trace.filePaths.length)
-      await setCached(cacheKey, output, config)
-      trace.codex.fallback  = true
-      trace.finalDecision   = 'block'
-      trace.totalLatencyMs  = Date.now() - t0
-      await writeTrace(trace, config)
-      block(output)
-    } else if (accepted === null) {
-      // non-interactive → approve silently (original behaviour)
-      trace.finalDecision  = 'approve'
-      trace.totalLatencyMs = Date.now() - t0
-      await writeTrace(trace, config)
-      approve()
-    } else {
-      // user declined → block with error
-      const reason = `Codex is unavailable: ${err.message}\nPipeline aborted. Retry after fixing Codex authentication.`
-      trace.finalDecision  = 'block'
-      trace.totalLatencyMs = Date.now() - t0
-      await writeTrace(trace, config)
-      block(reason)
-    }
+    // Codex failed — return Gemini-only result with a visible warning
+    logError(`Codex step failed: ${err.message}`)
+    const fallbackOutput = formatOutput(
+      geminiSummary,
+      `⚠️ Codex is unavailable: ${err.message}\n\nOnly the Gemini summary is shown above. To disable auto-review, run \`/bridge-review off\`.`,
+      toolName,
+      trace.filePaths.length
+    )
+    await setCached(cacheKey, fallbackOutput, config)
+    trace.codex.fallback  = true
+    trace.finalDecision   = 'block'
+    trace.totalLatencyMs  = Date.now() - t0
+    await writeTrace(trace, config)
+    block(fallbackOutput)
     return
   }
 
