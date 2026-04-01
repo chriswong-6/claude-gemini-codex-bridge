@@ -23,7 +23,6 @@
     "excludePatterns": [
       "*.secret", "*.key", "*.env", "*.password",
       "*.token", "*.pem", "*.p12", ".env*",
-      "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp",
       "*.zip", "*.tar", "*.gz", "*.bin", "*.exe", "*.dmg"
     ],
     "blockedPaths": [

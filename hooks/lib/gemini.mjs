@@ -34,7 +34,11 @@ that could affect correctness.`
 
 async function readFileSafe(fp) {
   try {
-    return await readFile(fp, 'utf8')
+    // Read as latin1 (1 byte → 1 char, no inflation) then strip NUL bytes —
+    // the same behaviour as bash `$(cat file)`, which allows binary files like
+    // PDFs to be piped to gemini without hanging (text fragments survive intact).
+    const raw = await readFile(fp, 'latin1')
+    return raw.replace(/\0/g, '')
   } catch {
     return `[Could not read file: ${fp}]`
   }
@@ -85,7 +89,7 @@ export async function summariseWithGemini(toolName, filePaths, originalPrompt, c
     // Pipe file contents to stdin then close.
     // Ignore EPIPE — some stub/fast-exit binaries close stdin early.
     child.stdin.on('error', () => {})
-    child.stdin.write(stdin, 'utf8')
+    child.stdin.write(stdin, 'latin1')
     child.stdin.end()
 
     const timer = setTimeout(() => {
