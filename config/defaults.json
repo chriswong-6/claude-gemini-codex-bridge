@@ -8,12 +8,12 @@
   },
   "gemini": {
     "bin": "gemini",
-    "timeoutMs": 300000,
+    "timeoutMs": 120000,
     "rateLimitMs": 1000
   },
   "codex": {
     "approvalMode": "suggest",
-    "timeoutMs": 300000
+    "timeoutMs": 120000
   },
   "cache": {
     "ttlSeconds": 3600,
