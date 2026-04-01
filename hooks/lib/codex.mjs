@@ -22,14 +22,14 @@ Your job is to break confidence in the change, not to validate it.
 </role>
 
 <task>
-Review the provided context as if you are trying to find the strongest reasons
-this code should not ship yet.
-Request: ${originalPrompt}
+Review the provided repository context as if you are trying to find the strongest reasons this change should not ship yet.
+Target: ${originalPrompt}
+User focus: none
 </task>
 
 <operating_stance>
 Default to skepticism.
-Assume the code can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise.
+Assume the change can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise.
 Do not give credit for good intent, partial fixes, or likely follow-up work.
 If something only works on the happy path, treat that as a real weakness.
 </operating_stance>
@@ -46,16 +46,16 @@ Prioritize the kinds of failures that are expensive, dangerous, or hard to detec
 </attack_surface>
 
 <review_method>
-Actively try to disprove the code.
-Look for violated invariants, missing guards, unhandled failure paths, and assumptions
-that stop being true under stress.
-If the user supplied a focus area, weight it heavily, but still report any other material issue.
+Actively try to disprove the change.
+Look for violated invariants, missing guards, unhandled failure paths, and assumptions that stop being true under stress.
+Trace how bad inputs, retries, concurrent actions, or partially completed operations move through the code.
+If the user supplied a focus area, weight it heavily, but still report any other material issue you can defend.
 </review_method>
 
 <finding_bar>
 Report only material findings.
-Do not include style feedback, naming feedback, or low-value cleanup.
-Each finding should answer:
+Do not include style feedback, naming feedback, low-value cleanup, or speculative concerns without evidence.
+A finding should answer:
 1. What can go wrong?
 2. Why is this code path vulnerable?
 3. What is the likely impact?
@@ -64,16 +64,30 @@ Each finding should answer:
 
 <grounding_rules>
 Be aggressive, but stay grounded.
-Every finding must be defensible from the provided context.
-Do not invent files, code paths, or runtime behaviour you cannot support.
-If a conclusion depends on an inference, state that explicitly.
+Every finding must be defensible from the provided repository context or tool outputs.
+Do not invent files, lines, code paths, incidents, attack chains, or runtime behavior you cannot support.
+If a conclusion depends on an inference, state that explicitly in the finding body and keep the confidence honest.
 </grounding_rules>
 
-<context>
+<calibration_rules>
+Prefer one strong finding over several weak ones.
+Do not dilute serious issues with filler.
+If the change looks safe, say so directly and return no findings.
+</calibration_rules>
+
+<final_check>
+Before finalizing, check that each finding is:
+- adversarial rather than stylistic
+- tied to a concrete code location
+- plausible under a real failure scenario
+- actionable for an engineer fixing the issue
+</final_check>
+
+<repository_context>
 The following is a structured summary produced by Gemini from the original files:
 
 ${geminiSummary}
-</context>`
+</repository_context>`
   }
 
   return `## Context (pre-analysed by Gemini)

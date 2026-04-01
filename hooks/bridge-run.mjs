@@ -11,8 +11,7 @@
 
 import { dirname, join, resolve, extname } from 'path'
 import { fileURLToPath } from 'url'
-import { stat, readdir, writeFile, mkdtemp } from 'fs/promises'
-import { tmpdir } from 'os'
+import { stat, readdir } from 'fs/promises'
 import { loadConfig }            from './lib/config.mjs'
 import { initLogger, log }       from './lib/logger.mjs'
 import { summariseWithGemini }   from './lib/gemini.mjs'
@@ -65,37 +64,26 @@ async function expandPath(p) {
 const args = process.argv.slice(2)
 
 let mode = 'review'
-let textInput = null
 const filePaths = []
 
 const rawPaths = []
 for (const arg of args) {
   if (arg.startsWith('--mode=')) {
     mode = arg.slice('--mode='.length)
-  } else if (arg.startsWith('--text=')) {
-    textInput = arg.slice('--text='.length)
   } else {
     rawPaths.push(resolve(arg))
   }
 }
 
-// If --text was provided, write it to a temp file and use that
-if (textInput !== null) {
-  const dir = await mkdtemp(join(tmpdir(), 'bridge-'))
-  const tmpFile = join(dir, 'input.txt')
-  await writeFile(tmpFile, textInput, 'utf8')
-  filePaths.push(tmpFile)
-} else {
-  // Expand directories into individual source files
-  for (const p of rawPaths) {
-    const expanded = await expandPath(p)
-    filePaths.push(...expanded)
-  }
+// Expand directories into individual source files
+for (const p of rawPaths) {
+  const expanded = await expandPath(p)
+  filePaths.push(...expanded)
+}
 
-  if (rawPaths.length > 0 && filePaths.length === 0) {
-    console.error(`[bridge-run] No source files found in: ${rawPaths.join(', ')}`)
-    process.exit(1)
-  }
+if (rawPaths.length > 0 && filePaths.length === 0) {
+  console.error(`[bridge-run] No source files found in: ${rawPaths.join(', ')}`)
+  process.exit(1)
 }
 
 if (!['review', 'adversarial'].includes(mode)) {

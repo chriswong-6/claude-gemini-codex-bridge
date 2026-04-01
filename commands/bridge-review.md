@@ -1,6 +1,4 @@
-Toggle or run the bridge review pipeline (Gemini → Codex).
-
-Works with code files, directories, OR any free-form text/idea.
+Toggle or run the bridge code review pipeline (Gemini → Codex). Code files and directories only.
 
 <instructions>
 The value of $ARGUMENTS is: "$ARGUMENTS"
@@ -17,15 +15,11 @@ CASE 2: $ARGUMENTS equals exactly the word "off"
 → Then say: "Bridge OFF — all files will pass through directly to Claude."
 → STOP.
 
-CASE 3: $ARGUMENTS is non-empty and looks like a file or directory path (starts with /, ./, ~/, or contains a file extension like .mjs .js .py .ts .go .md etc.)
+CASE 3: $ARGUMENTS is a non-empty file or directory path
 → Run this bash command with timeout 600000: aitools review $ARGUMENTS
 → Present the full output to the user.
 
-CASE 4: $ARGUMENTS is non-empty and does NOT look like a file path (it is free-form text, an idea, a question, or anything else)
-→ Run this bash command with timeout 600000: aitools review --text="$ARGUMENTS"
-→ Present the full output to the user.
-
-CASE 5: $ARGUMENTS is empty
-→ Ask the user: "请输入要审查的内容：文件路径、目录路径，或直接输入想法/文字"
-→ Wait for their input, then execute the matching case above.
+CASE 4: $ARGUMENTS is empty
+→ Ask the user: "请输入要审查的文件或目录路径："
+→ Wait for their input, then run: aitools review <input>
 </instructions>
