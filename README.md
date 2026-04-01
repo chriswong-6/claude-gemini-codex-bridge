@@ -41,7 +41,7 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 > **None of these tools are installed automatically by this project.**
 > You must install and authenticate all three before running `install.sh`.
 >
-> **Note on PDF support:** gemini CLI ≥ 0.35 interprets `@` bytes in stdin as file-path references, which causes it to hang on binary PDF content. The bridge uses `pdftotext` (part of `poppler`) to extract clean text before sending to Gemini. Without it, PDFs are still processed via printable-string extraction but results may be limited for compressed PDFs.
+> **Note on PDF support:** Without `pdftotext`, PDFs are processed via printable-string extraction (readable fragments only). Install poppler for full, structured PDF text extraction.
 
 ## Step 1 — Install the tools manually
 
@@ -86,7 +86,7 @@ Codex is required. Without it the pipeline is incomplete and `install.sh` will e
 brew install poppler
 ```
 
-Required for PDF analysis. gemini CLI ≥ 0.35 hangs when receiving raw binary PDF content via stdin — the bridge uses `pdftotext` (part of poppler) to extract clean text first. Without it, PDFs cannot be analysed by the pipeline.
+Optional. Without `pdftotext`, PDFs are processed via printable-string extraction (readable fragments only). Install poppler for full, structured PDF text extraction.
 
 ## Step 2 — Install the bridge
 
