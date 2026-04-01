@@ -117,6 +117,25 @@ aitools trace
 
 Every time the bridge fires, the trace window shows the data flow within ~100ms.
 
+## Manual review commands
+
+In addition to the automatic pipeline, two slash commands are available inside Claude Code for on-demand review of **any** file regardless of size:
+
+| Command | Description |
+|---|---|
+| `/bridge-review <file>` | Standard code review — bugs, risks, quality issues |
+| `/bridge-adversarial <file>` | Adversarial review — actively challenges design decisions and surfaces failure paths |
+
+Both commands run the full Gemini → Codex pipeline and return a structured report.
+
+**Example:**
+```
+/bridge-review src/auth/middleware.js
+/bridge-adversarial src/payments/processor.js
+```
+
+The slash commands are installed automatically by `install.sh` into `~/.claude/commands/`.
+
 ## Uninstall the bridge
 
 ```bash
