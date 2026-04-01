@@ -1,31 +1,63 @@
 # claude-gemini-codex-bridge
 
-A Claude Code `PreToolUse` hook that chains **Gemini** and **Codex** sequentially when a tool call targets files too large for Claude's context window.
+A Claude Code hook pipeline that chains **Gemini** and **Codex** to give Claude richer context and post-turn code review.
 
 ## How it works
 
+The pipeline has two stages that fire at different points in a turn:
+
 ```
-Claude triggers Read / Grep / Glob / Task
-          │
-          ▼
-   Token estimate > 50k?
-          │
-    No ───┴─── Yes
-    │               │
-  (pass through)    ▼
-              Gemini 1.5 Pro
-          (summarise large context)
-                    │
-                    ▼
-                  Codex
-          (deep analysis on summary)
-                    │
-                    ▼
-          Result injected back into Claude
+┌─────────────────────────────────────────────────────────────┐
+│  Stage 1 — Pre-tool-use (when Claude reads a file)          │
+│                                                             │
+│  Claude tries to Read a file                                │
+│          │                                                  │
+│    File > token threshold?  OR  manual /bridge-review set?  │
+│          │                                                  │
+│    No ───┴─── Yes                                           │
+│    │               │                                        │
+│  (pass through)    ▼                                        │
+│              Gemini summarises file                         │
+│              → summary injected as Claude's context         │
+│              → gemini-used flag set                         │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+  Claude answers using Gemini summary (may write code)
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Stage 2 — Stop hook (after Claude finishes responding)     │
+│                                                             │
+│  Trigger: mode=on  OR  gemini-used flag  OR  pending-review │
+│          │                                                  │
+│    Files to review?                                         │
+│    ├── Claude wrote/modified files → review those           │
+│    ├── Manual /bridge-review <path> → review those paths    │
+│    └── Nothing → approve, done                              │
+│          │                                                  │
+│          ▼                                                  │
+│       Codex reviews file contents directly                  │
+│       → analysis returned to Claude                         │
+│       → Claude revises its response if needed               │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-If Codex is unavailable, the Gemini summary is returned as fallback.  
-Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are instant.
+**Summary:**
+- **Gemini** runs *before* Claude answers — handles large files that would exceed Claude's context
+- **Codex** runs *after* Claude answers — reviews the code Claude wrote or the files you pointed to
+- Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are instant
+
+## Trigger conditions
+
+Any one of these three conditions activates the full pipeline:
+
+| Condition | Gemini (pre) | Codex (post) |
+|---|---|---|
+| `mode=off`, file ≤ threshold | ✗ | ✗ |
+| `mode=off`, file > threshold | ✓ auto | ✓ if Claude wrote files |
+| `mode=on` (review/adversarial) | ✓ if file > threshold | ✓ if Claude wrote files |
+| `/bridge-review <path>` (manual) | ✓ forced | ✓ reviews specified path |
 
 ## Requirements
 
@@ -36,12 +68,10 @@ Results are SHA-256 cached (TTL: 1 hour) so repeated calls on the same files are
 | `gemini` CLI | Google Gemini CLI — **must be installed manually** |
 | `codex` CLI | OpenAI Codex CLI — **must be installed manually** |
 | `jq` | for `install.sh` |
-| `pdftotext` | for PDF support — `brew install poppler` (optional but recommended) |
+| `pdftotext` | for PDF support — `brew install poppler` (optional) |
 
 > **None of these tools are installed automatically by this project.**
 > You must install and authenticate all three before running `install.sh`.
->
-> **Note on PDF support:** Without `pdftotext`, PDFs are processed via printable-string extraction (readable fragments only). Install poppler for full, structured PDF text extraction.
 
 ## Step 1 — Install the tools manually
 
@@ -78,15 +108,13 @@ npm install -g @openai/codex
 codex login          # sign in with your OpenAI account
 ```
 
-Codex is required. Without it the pipeline is incomplete and `install.sh` will exit with an error.
-
-### poppler (PDF support)
+### poppler (PDF support, optional)
 
 ```bash
 brew install poppler
 ```
 
-Optional. Without `pdftotext`, PDFs are processed via printable-string extraction (readable fragments only). Install poppler for full, structured PDF text extraction.
+Without `pdftotext`, PDFs are processed via printable-string extraction only.
 
 ## Step 2 — Install the bridge
 
@@ -97,9 +125,12 @@ npm link        # registers the `aitools` command globally
 bash install.sh
 ```
 
-`npm link` registers the `aitools` CLI so you can run `aitools start`, `aitools live`, and `aitools trace` from any directory.
+`install.sh` adds three hooks to `~/.claude/settings.json`:
+- `PreToolUse` — Gemini context injection for large files
+- `Stop` — Codex post-turn review
+- `SessionStart` — resets bridge mode to `off` on each new window
 
-The script adds a `PreToolUse` hook entry to `~/.claude/settings.json` and installs the slash commands into `~/.claude/commands/`.
+It also installs the slash commands into `~/.claude/commands/`.
 
 ## Step 3 — Start using it
 
@@ -107,48 +138,44 @@ The script adds a `PreToolUse` hook entry to `~/.claude/settings.json` and insta
 claude
 ```
 
-That's it. The bridge runs automatically in the background — no extra commands needed. Whenever Claude reads a file larger than 50k tokens, the hook intercepts the call and routes it through Gemini → Codex before returning the result.
+The bridge runs automatically in the background. Every new session starts with bridge mode **off**. Enable it per-session with `/bridge-review on`, or use it one-shot with `/bridge-review <path>`.
 
 ## Usage
 
-### Automatic pipeline
+### Bridge modes
 
-The bridge triggers automatically when Claude reads a file exceeding the token threshold (default: 50k tokens ≈ 200 KB):
-
-- **Small file** → Claude handles directly
-- **Large file** → Gemini summarises → Codex analyses → result returned to Claude
-
-### Manual review commands
-
-Two slash commands are available inside Claude Code. Each supports three usage patterns:
-
-| Command | Description |
+| Command | Effect |
 |---|---|
-| `/bridge-review <file\|dir>` | Standard code review — bugs, risks, quality issues |
-| `/bridge-adversarial <file\|dir>` | Adversarial review — actively challenges design decisions and surfaces failure paths |
+| `/bridge-review on` | Enable auto review mode for this session |
+| `/bridge-adversarial on` | Enable adversarial review mode for this session |
+| `/bridge-review off` | Disable — bridge stays off for remainder of session |
 
-**One-time review** (bridge stays off after):
+> **Session behaviour:** every new Claude Code window starts with mode **off**. Enabling `on` in one window does not affect other windows.
+
+### One-shot manual review
+
+Run the full pipeline on a specific file or directory without changing your session mode:
+
 ```
 /bridge-review src/auth/middleware.js
 /bridge-adversarial src/payments/processor.js
 ```
 
-**Enable auto mode** (all large files in this session are reviewed automatically):
-```
-/bridge-review on
-/bridge-adversarial on
-```
+**What happens:**
+1. Bridge queues a pending review for that path
+2. Claude reads the files — Gemini summarises them regardless of size
+3. Claude gives its analysis
+4. Codex reviews the specified files and Claude revises if needed
 
-**Disable** (stop auto review):
-```
-/bridge-review off
-```
+### Automatic pipeline (when mode=on)
 
-> **Session behaviour:** every new Claude Code window starts with bridge mode **off** (reset by `SessionStart` hook). Enabling `on` in one window does not affect other windows.
+With mode on, the bridge fires automatically whenever:
+- Claude reads a file exceeding the token threshold → Gemini injects context before Claude answers
+- Claude writes/modifies any file → Codex reviews after Claude responds
 
 ### Adjusting the token threshold
 
-The token threshold controls when the automatic pipeline triggers. Set it based on how many lines of code you want to review automatically:
+The token threshold controls when Gemini automatically kicks in for large files.
 
 | Lines of code | Approx tokens | `CLAUDE_TOKEN_LIMIT` |
 |---|---|---|
@@ -158,53 +185,34 @@ The token threshold controls when the automatic pipeline triggers. Set it based 
 | ~1,000 lines | 10,000 | `10000` |
 | ~5,000 lines | 50,000 | `50000` |
 
-*Rule of thumb: 1 line ≈ 10 tokens (40 characters ÷ 4 chars/token)*
+*Rule of thumb: 1 line ≈ 10 tokens*
 
 **Method 1 — Environment variable (per session):**
 
 ```bash
-export CLAUDE_TOKEN_LIMIT=5000   # trigger pipeline for files > ~500 lines
+export CLAUDE_TOKEN_LIMIT=5000   # trigger for files > ~500 lines
 claude
 ```
 
-Add to `~/.zshenv` to make it permanent:
+Add to `~/.zshenv` to make it permanent.
 
-```bash
-echo 'export CLAUDE_TOKEN_LIMIT=20000' >> ~/.zshenv
-```
-
-**Method 2 — Edit the default config (permanent for all users):**
-
-Edit `config/defaults.json`:
+**Method 2 — Edit the default config:**
 
 ```json
 "routing": {
-  "claudeTokenLimit": 20000
+  "claudeTokenLimit": 1000
 }
 ```
 
-| Value | Approx. file size | Effect |
-|---|---|---|
-| `10000` | ~40 KB | Almost all non-trivial files go through Gemini → Codex |
-| `20000` | ~80 KB | Medium files (100–200 line scripts) trigger the pipeline |
-| `50000` | ~200 KB | Default — only large files and documents |
-| `100000` | ~400 KB | Only very large files trigger the pipeline |
-
-**Lower = more Gemini/Codex calls, longer wait times, higher API cost.**  
-**Higher = faster for most files, but large files stay with Claude.**
-
 ### Monitoring with trace
 
-To verify the pipeline is working, open a second terminal and run:
+Open a second terminal to watch the pipeline in real time:
 
 ```bash
 aitools trace
 ```
 
-Every time the bridge fires, the trace window shows the data flow within ~100ms.
-
 **Small file (pass-through):**
-
 ```
 ────────────────────────────────────────────────────
   14:32:05  ·  Read  ·  1 file(s)
@@ -219,22 +227,38 @@ Every time the bridge fires, the trace window shows the data flow within ~100ms.
   ✓  Matches described workflow
 ```
 
-**Large file (full pipeline):**
-
+**Large file (Gemini context injection):**
 ```
 ────────────────────────────────────────────────────
   14:35:12  ·  Read  ·  1 file(s)
 ────────────────────────────────────────────────────
 
   Described:
-  Claude ─→ Gemini ─→ Codex ─→ Claude
+  Claude ─→ Gemini ─→ Claude
 
   Actual:
-  Claude ─→ Gemini ✓ ─→ Codex ✓ ─→ Claude ✓
+  Claude ─→ Gemini ✓ ─→ Claude ✓
 
   Gemini  ok   1 file(s) → 3241 chars  (12043ms)
-  Codex   ok   3241 chars in → 891 chars out  (8120ms)
-  Cache   miss    Total 20163ms
+  Cache   miss    Total 12043ms
+
+  ✓  Matches described workflow
+```
+
+**Post-turn Codex review:**
+```
+────────────────────────────────────────────────────
+  14:36:01  ·  Stop  ·  2 file(s)
+────────────────────────────────────────────────────
+
+  Described:
+  [post-turn: review]  Claude ─→ Codex ─→ Claude (stop review)
+
+  Actual:
+  Claude ─→ Codex ✓ ─→ Claude ✓
+
+  Codex   ok   8432 chars in → 1204 chars out  (9870ms)
+  Total 9870ms
 
   ✓  Matches described workflow
 ```
@@ -248,7 +272,7 @@ All options can be overridden via environment variables. Defaults are in `config
 | Variable | Default | Description |
 |---|---|---|
 | `GEMINI_BIN` | `gemini` | Path to the gemini CLI binary |
-| `CLAUDE_TOKEN_LIMIT` | `50000` | Token threshold that triggers the pipeline |
+| `CLAUDE_TOKEN_LIMIT` | `1000` | Token threshold that triggers Gemini context injection |
 | `GEMINI_TOKEN_LIMIT` | `800000` | Upper bound; files larger than this are passed through |
 | `MAX_TOTAL_SIZE_BYTES` | `10485760` | Hard 10 MB cap |
 | `CODEX_APPROVAL_MODE` | `suggest` | `suggest` / `auto-edit` / `full-auto` |
@@ -257,7 +281,7 @@ All options can be overridden via environment variables. Defaults are in `config
 | `DEBUG_LEVEL` | `0` | `0`=off `1`=basic `2`=verbose |
 | `LOG_DIR` | `~/.claude-gemini-codex-bridge/logs` | Log directory |
 
-## Uninstall the bridge
+## Uninstall
 
 ```bash
 bash uninstall.sh
@@ -267,75 +291,45 @@ bash uninstall.sh
 
 No API keys or external services are required — all external calls are mocked.
 
-### Diagnostic check
-
-Quickly verifies that every component is present and functional:
-
 ```bash
-node test/check.mjs
+aitools start    # unit + integration tests (mock)
+aitools live     # live tests against real CLIs (auth required)
 ```
 
-Add `--live` to also ping the real Gemini API:
-
-```bash
-node test/check.mjs --live
-```
-
-### Unit tests
-
-```bash
-node --test test/unit.test.mjs
-```
-
-### Integration tests
-
-```bash
-node --test test/integration.test.mjs
-```
-
-### Run everything (mock)
-
-```bash
-aitools start
-```
-
-### Live tests (real CLIs)
-
-Requires gemini and codex CLIs installed and authenticated:
-
-```bash
-gemini auth login
-codex login
-
-aitools live
-```
-
-### CI
-
-Tests run automatically on every push and pull request via GitHub Actions across Node.js 18, 20, and 22. See `.github/workflows/test.yml`.
+Tests run automatically on every push and pull request via GitHub Actions across Node.js 18, 20, and 22.
 
 ## Project structure
 
 ```
 claude-gemini-codex-bridge/
 ├── commands/
-│   ├── bridge-adversarial.md  # /bridge-adversarial slash command template
-│   └── bridge-review.md       # /bridge-review slash command template
+│   ├── bridge-adversarial.md  # /bridge-adversarial slash command
+│   └── bridge-review.md       # /bridge-review slash command
 ├── config/
 │   └── defaults.json          # Default configuration values
 ├── hooks/
-│   ├── pre-tool-use.mjs       # Hook entry point (reads stdin, orchestrates pipeline)
-│   ├── bridge-run.mjs         # Standalone runner for manual review commands
+│   ├── pre-tool-use.mjs       # Stage 1: Gemini context injection
+│   ├── stop-review.mjs        # Stage 2: Codex post-turn review
 │   └── lib/
 │       ├── cache.mjs          # SHA-256 content-based cache
 │       ├── codex.mjs          # Codex CLI integration
 │       ├── config.mjs         # Config loader (defaults + env overrides)
 │       ├── gemini.mjs         # Gemini CLI client
-│       ├── logger.mjs         # Stderr/file logger (never pollutes stdout)
-│       ├── paths.mjs          # @-notation path resolver + file extractor
-│       ├── prompt.mjs         # Interactive degradation prompts via /dev/tty
-│       ├── router.mjs         # Routing decision engine (token estimation)
-│       └── tracer.mjs         # Writes JSON trace files for aitools trace
+│       ├── gemini-flag.mjs    # Flag: Gemini was used this turn
+│       ├── logger.mjs         # Stderr/file logger
+│       ├── mode.mjs           # Bridge mode state (review/adversarial/off)
+│       ├── paths.mjs          # File path extractor from tool calls
+│       ├── pending-review.mjs # Flag: manual /bridge-review <path> queued
+│       ├── router.mjs         # Routing decision (token estimation)
+│       ├── session-files.mjs  # Tracks files Claude writes this turn
+│       └── tracer.mjs         # Writes JSON trace files
+├── bin/
+│   └── aitools.mjs            # aitools CLI (mode, trace, pending-review)
+├── test/
+│   ├── trace.mjs              # Live trace viewer
+│   ├── check.mjs              # Diagnostic check
+│   ├── unit.test.mjs
+│   └── integration.test.mjs
 ├── install.sh
 ├── uninstall.sh
 └── package.json
