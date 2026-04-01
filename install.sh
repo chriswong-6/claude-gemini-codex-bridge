@@ -4,6 +4,7 @@
 set -euo pipefail
 
 HOOK_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hooks/pre-tool-use.mjs"
+HOOK_SCRIPT_DIR="$(dirname "$HOOK_SCRIPT")"
 SETTINGS="$HOME/.claude/settings.json"
 
 if [ ! -f "$HOOK_SCRIPT" ]; then
@@ -79,6 +80,20 @@ UPDATED=$(echo "$UPDATED" | jq '
     end
   else
     .hooks.SessionStart = [{"hooks": [{"type": "command", "command": "aitools mode off"}]}]
+  end
+')
+
+# Add Stop hook for post-turn Gemini → Codex review
+STOP_CMD="node $HOOK_SCRIPT_DIR/stop-review.mjs"
+UPDATED=$(echo "$UPDATED" | jq --arg cmd "$STOP_CMD" '
+  if (.hooks.Stop | type) == "array" then
+    if (.hooks.Stop | map(.hooks[]?.command // "") | contains([$cmd])) then
+      .
+    else
+      .hooks.Stop += [{"hooks": [{"type": "command", "command": $cmd}]}]
+    end
+  else
+    .hooks.Stop = [{"hooks": [{"type": "command", "command": $cmd}]}]
   end
 ')
 

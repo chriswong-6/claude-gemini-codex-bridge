@@ -25,6 +25,7 @@ import { analyseWithCodex }                  from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
 import { writeTrace }                        from './lib/tracer.mjs'
 import { getMode }                           from './lib/mode.mjs'
+import { addSessionFile }                    from './lib/session-files.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,11 @@ async function main() {
     log(1, 'bridge mode=off, approving')
     approve()
     return
+  }
+
+  // Track files Claude writes/edits for post-turn stop review
+  if (['Write', 'Edit', 'MultiEdit'].includes(toolName) && toolInput.file_path) {
+    await addSessionFile(toolInput.file_path)
   }
 
   const trace = {
