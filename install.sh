@@ -69,6 +69,19 @@ UPDATED=$(jq --argjson hook "$HOOK_ENTRY" '
   end
 ' "$SETTINGS")
 
+# Add SessionStart hook to reset bridge mode to off on each new session
+UPDATED=$(echo "$UPDATED" | jq '
+  if (.hooks.SessionStart | type) == "array" then
+    if (.hooks.SessionStart | map(.hooks[]?.command // "") | contains(["aitools mode off"])) then
+      .
+    else
+      .hooks.SessionStart += [{"hooks": [{"type": "command", "command": "aitools mode off"}]}]
+    end
+  else
+    .hooks.SessionStart = [{"hooks": [{"type": "command", "command": "aitools mode off"}]}]
+  end
+')
+
 echo "$UPDATED" > "$SETTINGS"
 
 # Install slash commands into ~/.claude/commands/
