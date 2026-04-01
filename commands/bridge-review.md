@@ -1,28 +1,26 @@
 Toggle or run the bridge code review pipeline (Gemini → Codex).
 
-**Toggle mode** (persists across sessions):
-- `/bridge-review on`  — enable auto-review: large files are automatically reviewed
-- `/bridge-review off` — disable bridge entirely: all files pass through directly
-
-**One-time review** (runs immediately on a specific path):
-- `/bridge-review <path>` — review a file or directory now
-
 <instructions>
-Check $ARGUMENTS:
+The value of $ARGUMENTS is: "$ARGUMENTS"
 
-If $ARGUMENTS is "on":
-  Use the Bash tool to run: aitools mode review
-  Then tell the user: "Bridge review mode ON — large files will be automatically reviewed via Gemini → Codex."
+Follow EXACTLY one of these cases — check in order:
 
-If $ARGUMENTS is "off":
-  Use the Bash tool to run: aitools mode off
-  Then tell the user: "Bridge OFF — all files will pass through directly to Claude."
+CASE 1: $ARGUMENTS equals exactly the word "on"
+→ Run this bash command: aitools mode review
+→ Then say: "Bridge review mode ON — large files will be automatically reviewed via Gemini → Codex."
+→ STOP. Do not ask for a path.
 
-If $ARGUMENTS is a file or directory path (not "on" or "off"):
-  Use the Bash tool with timeout 600000 to run: aitools review $ARGUMENTS
-  Then present the full output to the user.
+CASE 2: $ARGUMENTS equals exactly the word "off"
+→ Run this bash command: aitools mode off
+→ Then say: "Bridge OFF — all files will pass through directly to Claude."
+→ STOP. Do not ask for a path.
 
-If $ARGUMENTS is empty:
-  Ask the user: "请选择操作：\n1. 开启自动审查模式（on）\n2. 关闭 bridge（off）\n3. 对特定路径运行审查（输入路径）"
-  Then execute the appropriate command based on their response.
+CASE 3: $ARGUMENTS is a non-empty string that is NOT "on" or "off"
+→ Treat it as a file or directory path.
+→ Run this bash command with timeout 600000: aitools review $ARGUMENTS
+→ Present the full output to the user.
+
+CASE 4: $ARGUMENTS is empty
+→ Ask the user: "请选择操作：输入 on（开启自动审查）、off（关闭 bridge）或文件路径（立即审查）"
+→ Wait for their input, then execute the matching case above.
 </instructions>
