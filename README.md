@@ -139,6 +139,47 @@ All options can be overridden via environment variables. Defaults are in `config
 | `DEBUG_LEVEL` | `0` | `0`=off `1`=basic `2`=verbose |
 | `LOG_DIR` | `~/.claude-gemini-codex-bridge/logs` | Log directory |
 
+## Adjusting the token threshold
+
+The token threshold controls when the pipeline triggers. Files below the threshold go directly to Claude; files above it are routed through Gemini → Codex.
+
+**Default: 50,000 tokens ≈ 200 KB of text**
+
+### Method 1 — Environment variable (per session)
+
+```bash
+export CLAUDE_TOKEN_LIMIT=20000   # trigger pipeline for files > 20k tokens (~80 KB)
+claude
+```
+
+Add to `~/.zshenv` to make it permanent:
+
+```bash
+echo 'export CLAUDE_TOKEN_LIMIT=20000' >> ~/.zshenv
+```
+
+### Method 2 — Edit the default config (permanent for all users)
+
+Edit `config/defaults.json`:
+
+```json
+"routing": {
+  "claudeTokenLimit": 20000
+}
+```
+
+### Choosing a value
+
+| Value | Approx. file size | Effect |
+|---|---|---|
+| `10000` | ~40 KB | Almost all non-trivial files go through Gemini → Codex |
+| `20000` | ~80 KB | Medium files (100–200 line scripts) trigger the pipeline |
+| `50000` | ~200 KB | Default — only large files and documents |
+| `100000` | ~400 KB | Only very large files trigger the pipeline |
+
+**Lower = more Gemini/Codex calls, longer wait times, higher API cost.**
+**Higher = faster for most files, but large files stay with Claude.**
+
 ## Testing
 
 No API keys or external services are required — all external calls are mocked.
