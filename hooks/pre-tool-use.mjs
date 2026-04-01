@@ -25,6 +25,7 @@ import { analyseWithCodex }                  from './lib/codex.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
 import { writeTrace }                        from './lib/tracer.mjs'
 import { promptDegradation }                from './lib/prompt.mjs'
+import { getMode }                           from './lib/mode.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,14 @@ async function readStdin() {
 async function main() {
   const config = await loadConfig()
   initLogger(config.debug.level, config.debug.logDir)
+
+  // Check bridge mode — if off, pass through immediately
+  const mode = await getMode()
+  if (mode === 'off') {
+    log(1, 'bridge mode=off, approving')
+    approve()
+    return
+  }
 
   const trace = {
     timestamp:    new Date().toISOString(),
@@ -157,7 +166,7 @@ async function main() {
   let codexResult
   const tCodex = Date.now()
   try {
-    codexResult = await analyseWithCodex(geminiSummary, trace.description, toolName, cwd, config)
+    codexResult = await analyseWithCodex(geminiSummary, trace.description, toolName, cwd, config, mode)
     trace.codex = {
       called:      true,
       inputChars:  geminiSummary.length,
