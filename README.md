@@ -80,6 +80,14 @@ codex login          # sign in with your OpenAI account
 
 Codex is required. Without it the pipeline is incomplete and `install.sh` will exit with an error.
 
+### poppler (PDF support)
+
+```bash
+brew install poppler
+```
+
+Required for PDF analysis. gemini CLI ≥ 0.35 hangs when receiving raw binary PDF content via stdin — the bridge uses `pdftotext` (part of poppler) to extract clean text first. Without it, PDFs cannot be analysed by the pipeline.
+
 ## Step 2 — Install the bridge
 
 ```bash
