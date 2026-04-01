@@ -178,14 +178,20 @@ async function main() {
       fallback:    false,
     }
 
-    // Codex failed — return Gemini-only result with a visible warning
+    // Codex failed — ask user if they want Gemini-only result
     logError(`Codex step failed: ${err.message}`)
-    const fallbackOutput = formatOutput(
+    const fallbackOutput = [
+      `⚠️ Codex is unavailable: ${err.message}`,
+      ``,
+      `Gemini analysis completed successfully. Do you want to use the Gemini-only summary?`,
+      `• Reply **yes** — Claude will present the Gemini summary below`,
+      `• Reply **no** — run \`/bridge-review off\` to disable auto-review and retry`,
+      ``,
+      `---`,
+      ``,
+      `## Gemini Summary (available if you choose yes)`,
       geminiSummary,
-      `⚠️ Codex is unavailable: ${err.message}\n\nOnly the Gemini summary is shown above. To disable auto-review, run \`/bridge-review off\`.`,
-      toolName,
-      trace.filePaths.length
-    )
+    ].join('\n')
     await setCached(cacheKey, fallbackOutput, config)
     trace.codex.fallback  = true
     trace.finalDecision   = 'block'
