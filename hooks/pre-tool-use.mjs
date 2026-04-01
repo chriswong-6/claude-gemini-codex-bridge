@@ -1,31 +1,31 @@
 #!/usr/bin/env node
 /**
- * Claude Code PreToolUse hook — Gemini → Codex sequential pipeline.
+ * Claude Code PreToolUse hook — Gemini context injection.
  *
  * Flow:
- *   1. Read tool call JSON from stdin
- *   2. Estimate token count of target files
- *   3. If within Claude's limit → approve (pass through)
- *   4. If exceeds limit:
+ *   1. Parse tool call JSON from stdin
+ *   2. Track files written/edited by Claude (for Stop hook)
+ *   3. Check if target files exceed the token threshold
+ *   4. If within limit → approve (pass through)
+ *   5. If exceeds limit:
  *      a. Check cache
  *      b. Gemini: summarise large file(s) into structured context
- *      c. Codex: deep-analyse using the Gemini summary
- *      d. Cache result
- *      e. Block tool call, return pipeline result as the tool "output"
+ *      c. Set gemini-used flag (so Stop hook runs Codex review)
+ *      d. Block tool call, return Gemini summary as Claude's context
  *
+ * Note: Codex runs in the Stop hook AFTER Claude responds, not here.
  * Exit codes: 0 always (never crash the hook chain).
  */
 
-import { loadConfig }                        from './lib/config.mjs'
-import { initLogger, log, logError }         from './lib/logger.mjs'
-import { shouldDelegate }                    from './lib/router.mjs'
-import { extractFilePaths, describeToolCall } from './lib/paths.mjs'
-import { summariseWithGemini }               from './lib/gemini.mjs'
-import { analyseWithCodex }                  from './lib/codex.mjs'
+import { loadConfig }                          from './lib/config.mjs'
+import { initLogger, log, logError }           from './lib/logger.mjs'
+import { shouldDelegate }                      from './lib/router.mjs'
+import { extractFilePaths, describeToolCall }  from './lib/paths.mjs'
+import { summariseWithGemini }                 from './lib/gemini.mjs'
 import { buildCacheKey, getCached, setCached } from './lib/cache.mjs'
-import { writeTrace }                        from './lib/tracer.mjs'
-import { getMode }                           from './lib/mode.mjs'
-import { addSessionFile }                    from './lib/session-files.mjs'
+import { writeTrace }                          from './lib/tracer.mjs'
+import { addSessionFile }                      from './lib/session-files.mjs'
+import { setGeminiUsed }                       from './lib/gemini-flag.mjs'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,29 +49,16 @@ async function main() {
   const config = await loadConfig()
   initLogger(config.debug.level, config.debug.logDir)
 
-  // Check bridge mode — if off, pass through immediately
-  const mode = await getMode()
-  if (mode === 'off') {
-    log(1, 'bridge mode=off, approving')
-    approve()
-    return
-  }
-
-  // Track files Claude writes/edits for post-turn stop review
-  if (['Write', 'Edit', 'MultiEdit'].includes(toolName) && toolInput.file_path) {
-    await addSessionFile(toolInput.file_path)
-  }
-
   const trace = {
-    timestamp:    new Date().toISOString(),
-    toolName:     '',
-    filePaths:    [],
-    description:  '',
-    routing:      { delegate: false, reason: '' },
-    cacheHit:     false,
-    gemini:       { called: false, inputFiles: 0, outputChars: 0, latencyMs: 0, error: null },
-    codex:        { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
-    finalDecision: '',
+    timestamp:      new Date().toISOString(),
+    toolName:       '',
+    filePaths:      [],
+    description:    '',
+    routing:        { delegate: false, reason: '' },
+    cacheHit:       false,
+    gemini:         { called: false, inputFiles: 0, outputChars: 0, latencyMs: 0, error: null },
+    codex:          { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
+    finalDecision:  '',
     totalLatencyMs: 0,
   }
   const t0 = Date.now()
@@ -107,33 +94,40 @@ async function main() {
 
   log(1, `hook fired: tool=${toolName} cwd=${cwd}`)
 
-  // 2. Routing decision
+  // 2. Track files Claude writes/edits for post-turn Stop review
+  if (['Write', 'Edit', 'MultiEdit'].includes(toolName) && toolInput.file_path) {
+    await addSessionFile(toolInput.file_path)
+  }
+
+  // 3. Routing decision — delegate if file(s) exceed the token threshold.
+  //    This fires regardless of bridge mode: large files always get Gemini context.
   const { delegate, reason } = await shouldDelegate(toolName, trace.filePaths, config)
   trace.routing = { delegate, reason }
   log(1, `delegate=${delegate} reason="${reason}"`)
 
   if (!delegate) {
-    trace.finalDecision = 'approve'
+    trace.finalDecision  = 'approve'
     trace.totalLatencyMs = Date.now() - t0
     await writeTrace(trace, config)
     approve()
     return
   }
 
-  // 3. Cache check
+  // 4. Cache check
   const cacheKey = await buildCacheKey(trace.filePaths, trace.description)
   const cached   = await getCached(cacheKey, config)
   if (cached) {
-    log(1, 'returning cached pipeline result')
-    trace.cacheHit     = true
-    trace.finalDecision = 'block'
+    log(1, 'returning cached Gemini context')
+    trace.cacheHit       = true
+    trace.finalDecision  = 'block'
     trace.totalLatencyMs = Date.now() - t0
     await writeTrace(trace, config)
+    await setGeminiUsed()
     block(cached)
     return
   }
 
-  // 4. Gemini step
+  // 5. Gemini step — summarise large files into context for Claude
   let geminiSummary
   const tGemini = Date.now()
   try {
@@ -148,68 +142,19 @@ async function main() {
   } catch (err) {
     logError(`Gemini step failed: ${err.message}`)
     trace.gemini = { called: true, inputFiles: trace.filePaths.length, outputChars: 0, latencyMs: Date.now() - tGemini, error: err.message }
-    trace.finalDecision  = 'block'
+    trace.finalDecision  = 'approve'
     trace.totalLatencyMs = Date.now() - t0
     await writeTrace(trace, config)
-    block(
-      `⚠️ Bridge pipeline failed — Gemini is unavailable.\n\nError: ${err.message}\n\n` +
-      `The file was not processed by the bridge. Choose one of:\n` +
-      `• Run \`/bridge-review off\` to disable auto-review, then retry\n` +
-      `• Fix Gemini authentication (\`gemini auth login\`) and retry`
-    )
+    // Gemini failed — let Claude read the file directly
+    approve()
     return
   }
 
-  // 5. Codex step
-  let codexResult
-  const tCodex = Date.now()
-  try {
-    codexResult = await analyseWithCodex(geminiSummary, trace.description, toolName, cwd, config, mode)
-    trace.codex = {
-      called:      true,
-      inputChars:  geminiSummary.length,
-      outputChars: codexResult.length,
-      latencyMs:   Date.now() - tCodex,
-      error:       null,
-      fallback:    false,
-    }
-  } catch (err) {
-    logError(`Codex step failed: ${err.message}`)
-    trace.codex = {
-      called:      true,
-      inputChars:  geminiSummary.length,
-      outputChars: 0,
-      latencyMs:   Date.now() - tCodex,
-      error:       err.message,
-      fallback:    false,
-    }
-
-    // Codex failed — ask user if they want Gemini-only result
-    logError(`Codex step failed: ${err.message}`)
-    const fallbackOutput = [
-      `⚠️ Codex is unavailable: ${err.message}`,
-      ``,
-      `Gemini analysis completed successfully. Do you want to use the Gemini-only summary?`,
-      `• Reply **yes** — Claude will present the Gemini summary below`,
-      `• Reply **no** — run \`/bridge-review off\` to disable auto-review and retry`,
-      ``,
-      `---`,
-      ``,
-      `## Gemini Summary (available if you choose yes)`,
-      geminiSummary,
-    ].join('\n')
-    await setCached(cacheKey, fallbackOutput, config)
-    trace.codex.fallback  = true
-    trace.finalDecision   = 'block'
-    trace.totalLatencyMs  = Date.now() - t0
-    await writeTrace(trace, config)
-    block(fallbackOutput)
-    return
-  }
-
-  // 6. Cache and return
-  const output = formatOutput(geminiSummary, codexResult, toolName, trace.filePaths.length)
+  // 6. Cache and return Gemini summary as Claude's context.
+  //    Codex review happens in the Stop hook after Claude responds.
+  const output = formatOutput(geminiSummary, toolName, trace.filePaths.length)
   await setCached(cacheKey, output, config)
+  await setGeminiUsed()
 
   trace.finalDecision  = 'block'
   trace.totalLatencyMs = Date.now() - t0
@@ -217,15 +162,14 @@ async function main() {
   block(output)
 }
 
-function formatOutput(geminiSummary, codexResult, toolName, fileCount) {
+function formatOutput(geminiSummary, toolName, fileCount) {
   return [
-    `Pipeline result for: ${toolName} (${fileCount} file(s))`,
+    `## Gemini Context: ${toolName} (${fileCount} file(s))`,
     '',
-    '## Gemini Context Summary',
     geminiSummary,
     '',
-    '## Codex Analysis',
-    codexResult,
+    '---',
+    '_Large file(s) summarised by Gemini. Codex will review your response after this turn._',
   ].join('\n')
 }
 

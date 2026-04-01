@@ -1,19 +1,23 @@
 #!/usr/bin/env node
 /**
- * Claude Code Stop hook — post-turn Gemini → Codex review.
+ * Claude Code Stop hook — post-turn Codex review.
  *
  * Flow:
  *   1. Claude finishes its response
  *   2. This hook fires
- *   3. If bridge is on and Claude modified files → run Gemini → Codex
- *   4. Return analysis to Claude so it can improve its answer
- *   5. Clear tracked files (prevents infinite loop on next stop)
+ *   3. Trigger conditions (either):
+ *      a. Bridge mode is on (review/adversarial), OR
+ *      b. Gemini was used this turn (large file was summarised in pre-tool-use)
+ *   4. If Claude modified files → run Gemini → Codex on the changes
+ *   5. Return analysis to Claude so it can improve its answer
+ *   6. Clear gemini-used flag and session files (prevents infinite loop)
  */
 
 import { loadConfig }          from './lib/config.mjs'
 import { initLogger, log }     from './lib/logger.mjs'
 import { getMode }             from './lib/mode.mjs'
 import { getSessionFiles, clearSessionFiles } from './lib/session-files.mjs'
+import { getGeminiUsed, clearGeminiUsed }     from './lib/gemini-flag.mjs'
 import { summariseWithGemini } from './lib/gemini.mjs'
 import { analyseWithCodex }    from './lib/codex.mjs'
 import { writeTrace }          from './lib/tracer.mjs'
@@ -47,9 +51,13 @@ async function main() {
     }
   } catch {}
 
-  // Only run when bridge is on
-  const mode = await getMode()
-  if (mode === 'off') {
+  // Trigger conditions:
+  // - bridge mode is on (review/adversarial), OR
+  // - Gemini was used this turn (file exceeded threshold, even with mode=off)
+  const mode        = await getMode()
+  const geminiUsed  = await getGeminiUsed()
+
+  if (mode === 'off' && !geminiUsed) {
     approve()
     return
   }
@@ -64,16 +72,22 @@ async function main() {
   }
 
   if (files.length === 0) {
+    // Clear gemini flag even if no files to review
+    await clearGeminiUsed()
     approve()
     return
   }
 
   // Clear NOW to prevent infinite review loop on next stop
   await clearSessionFiles()
+  await clearGeminiUsed()
 
   log(1, `stop-review: reviewing ${files.length} modified file(s)`)
 
-  const originalPrompt = mode === 'adversarial'
+  // When mode=off but Gemini ran (large file), use 'auto' label
+  const reviewMode = (mode === 'off' && geminiUsed) ? 'auto' : mode
+
+  const originalPrompt = reviewMode === 'adversarial'
     ? 'Adversarial review — find every reason these code changes should not ship.'
     : 'Code review — analyse the changes made in this turn for bugs, risks, and quality issues.'
 
@@ -82,8 +96,8 @@ async function main() {
     timestamp:      new Date().toISOString(),
     toolName:       'Stop',
     filePaths:      files,
-    description:    `post-turn:${mode}`,
-    routing:        { delegate: true, reason: 'stop-review hook' },
+    description:    `post-turn:${reviewMode}`,
+    routing:        { delegate: true, reason: geminiUsed ? 'gemini-used-this-turn' : 'stop-review hook' },
     cacheHit:       false,
     gemini:         { called: false, inputFiles: files.length, outputChars: 0, latencyMs: 0, error: null },
     codex:          { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
@@ -105,7 +119,7 @@ async function main() {
     await writeTrace(trace, config)
 
     const fileNames = files.map(f => f.split('/').pop()).join(', ')
-    const label     = mode === 'adversarial' ? 'Adversarial Review' : 'Code Review'
+    const label     = reviewMode === 'adversarial' ? 'Adversarial Review' : 'Code Review'
 
     block([
       `## Post-turn ${label} (Gemini → Codex)`,

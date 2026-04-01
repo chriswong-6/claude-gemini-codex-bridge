@@ -50,7 +50,10 @@ function printTrace(t) {
   } else if (isManual) {
     console.log(`  ${c.bold(`[manual: ${manualMode}]`)}  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   } else if (isPostTurn) {
-    console.log(`  ${c.bold(`[post-turn: ${postMode}]`)}  Claude ─→ Gemini ─→ Codex ─→ Claude (stop review)`)
+    const postLabel = postMode === 'auto'
+      ? '[post-turn: auto — gemini threshold]'
+      : `[post-turn: ${postMode}]`
+    console.log(`  ${c.bold(postLabel)}  Claude ─→ Gemini ─→ Codex ─→ Claude (stop review)`)
   } else {
     console.log(`  Claude ─→ Gemini ─→ Codex ─→ Claude`)
   }
