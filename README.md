@@ -148,14 +148,22 @@ Two slash commands are available inside Claude Code. Each supports three usage p
 
 ### Adjusting the token threshold
 
-The token threshold controls when the automatic pipeline triggers.
+The token threshold controls when the automatic pipeline triggers. Set it based on how many lines of code you want to review automatically:
 
-**Default: 50,000 tokens ≈ 200 KB of text**
+| Lines of code | Approx tokens | `CLAUDE_TOKEN_LIMIT` |
+|---|---|---|
+| ~50 lines | 500 | `500` |
+| ~100–200 lines | 1,000 | `1000` ← **default** |
+| ~500 lines | 5,000 | `5000` |
+| ~1,000 lines | 10,000 | `10000` |
+| ~5,000 lines | 50,000 | `50000` |
+
+*Rule of thumb: 1 line ≈ 10 tokens (40 characters ÷ 4 chars/token)*
 
 **Method 1 — Environment variable (per session):**
 
 ```bash
-export CLAUDE_TOKEN_LIMIT=20000   # trigger pipeline for files > 20k tokens (~80 KB)
+export CLAUDE_TOKEN_LIMIT=5000   # trigger pipeline for files > ~500 lines
 claude
 ```
 
