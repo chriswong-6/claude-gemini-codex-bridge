@@ -52,6 +52,11 @@ function printTrace(t) {
   if (!delegated) {
     const ok = t.finalDecision === 'approve' && !t.gemini?.called
     console.log(`  Claude ─→ ${ok ? c.green('Claude ✓') : c.red('unexpected: ' + t.finalDecision)}`)
+  } else if (t.cacheHit) {
+    // Cache hit: Gemini/Codex were not called — that is correct behaviour
+    console.log(`  Claude ─→ ${c.green('Cache ✓')} ─→ ${c.green('Claude ✓')}`)
+    console.log()
+    console.log(`  Cache   ${c.green('hit')}    Total ${c.dim(t.totalLatencyMs + 'ms')}`)
   } else {
     const geminiOk = t.gemini?.called && !t.gemini?.error
     const codexOk  = t.codex?.called  && !t.codex?.error
@@ -72,12 +77,13 @@ function printTrace(t) {
       const s = codexOk ? c.green('ok') : (t.codex.fallback ? c.yellow('fallback') : c.red(t.codex.error))
       console.log(`  Codex   ${s}  ${c.dim(`${t.codex.inputChars} chars in → ${t.codex.outputChars} chars out  (${t.codex.latencyMs}ms)`)}`)
     }
-    console.log(`  Cache   ${c.dim(t.cacheHit ? 'hit' : 'miss')}    Total ${c.dim(t.totalLatencyMs + 'ms')}`)
+    console.log(`  Cache   ${c.dim('miss')}    Total ${c.dim(t.totalLatencyMs + 'ms')}`)
   }
 
   // verdict
   const matched = delegated
-    ? t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block'
+    ? (t.cacheHit && t.finalDecision === 'block') ||
+      (t.gemini?.called && !t.gemini?.error && t.codex?.called && t.finalDecision === 'block')
     : t.finalDecision === 'approve' && !t.gemini?.called
 
   console.log()
