@@ -5,12 +5,13 @@
  * Flow:
  *   1. Claude finishes its response
  *   2. This hook fires
- *   3. Trigger conditions (either):
- *      a. Bridge mode is on (review/adversarial), OR
- *      b. Gemini was used this turn (large file was summarised in pre-tool-use)
- *   4. If Claude modified files → run Gemini → Codex on the changes
- *   5. Return analysis to Claude so it can improve its answer
- *   6. Clear gemini-used flag and session files (prevents infinite loop)
+ *   3. Trigger conditions (any one of):
+ *      a. Bridge mode is on (review/adversarial)
+ *      b. Gemini was used this turn (large file summarised in pre-tool-use)
+ *      c. Manual /bridge-review <path> set the pending-review flag
+ *   4. If Claude modified files → Codex reviews them directly (no Gemini step)
+ *   5. Return Codex analysis to Claude so it can improve its answer
+ *   6. Clear all flags (prevents infinite loop on next stop)
  */
 
 import { loadConfig }          from './lib/config.mjs'
@@ -19,10 +20,9 @@ import { getMode }             from './lib/mode.mjs'
 import { getSessionFiles, clearSessionFiles } from './lib/session-files.mjs'
 import { getGeminiUsed, clearGeminiUsed }     from './lib/gemini-flag.mjs'
 import { getPendingReview, clearPendingReview } from './lib/pending-review.mjs'
-import { summariseWithGemini } from './lib/gemini.mjs'
 import { analyseWithCodex }    from './lib/codex.mjs'
 import { writeTrace }          from './lib/tracer.mjs'
-import { stat }                from 'fs/promises'
+import { stat, readFile }      from 'fs/promises'
 
 function approve() {
   process.stdout.write(JSON.stringify({ decision: 'approve' }) + '\n')
@@ -36,6 +36,19 @@ async function readStdin() {
   const chunks = []
   for await (const chunk of process.stdin) chunks.push(chunk)
   return Buffer.concat(chunks).toString('utf8').trim()
+}
+
+async function readFilesAsContext(files) {
+  const sections = []
+  for (const fp of files) {
+    try {
+      const content = await readFile(fp, 'utf8')
+      sections.push(`### ${fp}\n\`\`\`\n${content}\n\`\`\``)
+    } catch {
+      sections.push(`### ${fp}\n_(unreadable)_`)
+    }
+  }
+  return sections.join('\n\n')
 }
 
 async function main() {
@@ -75,8 +88,8 @@ async function main() {
   }
 
   if (files.length === 0) {
-    // Clear gemini flag even if no files to review
     await clearGeminiUsed()
+    await clearPendingReview()
     approve()
     return
   }
@@ -86,7 +99,7 @@ async function main() {
   await clearGeminiUsed()
   await clearPendingReview()
 
-  log(1, `stop-review: reviewing ${files.length} modified file(s)`)
+  log(1, `stop-review: reviewing ${files.length} modified file(s) with Codex`)
 
   // Determine review type:
   // - mode=on → use mode value (review/adversarial)
@@ -106,22 +119,28 @@ async function main() {
     toolName:       'Stop',
     filePaths:      files,
     description:    `post-turn:${reviewMode}`,
-    routing:        { delegate: true, reason: geminiUsed ? 'gemini-used-this-turn' : 'stop-review hook' },
+    routing:        { delegate: true, reason: pendingReview ? `manual:${pendingReview}` : (geminiUsed ? 'gemini-used-this-turn' : 'mode-on') },
     cacheHit:       false,
-    gemini:         { called: false, inputFiles: files.length, outputChars: 0, latencyMs: 0, error: null },
+    gemini:         { called: false, inputFiles: 0, outputChars: 0, latencyMs: 0, error: null },
     codex:          { called: false, inputChars: 0, outputChars: 0, latencyMs: 0, error: null, fallback: false },
     finalDecision:  '',
     totalLatencyMs: 0,
   }
 
   try {
-    const tGemini = Date.now()
-    const geminiSummary = await summariseWithGemini('Stop', files, originalPrompt, config)
-    trace.gemini = { called: true, inputFiles: files.length, outputChars: geminiSummary.length, latencyMs: Date.now() - tGemini, error: null }
+    // Read file contents directly — no Gemini step in Stop hook
+    const fileContents = await readFilesAsContext(files)
 
     const tCodex = Date.now()
-    const codexResult = await analyseWithCodex(geminiSummary, originalPrompt, 'Stop', cwd, config, mode)
-    trace.codex = { called: true, inputChars: geminiSummary.length, outputChars: codexResult.length, latencyMs: Date.now() - tCodex, error: null, fallback: false }
+    const codexResult = await analyseWithCodex(fileContents, originalPrompt, 'Stop', cwd, config, reviewMode)
+    trace.codex = {
+      called:      true,
+      inputChars:  fileContents.length,
+      outputChars: codexResult.length,
+      latencyMs:   Date.now() - tCodex,
+      error:       null,
+      fallback:    false,
+    }
 
     trace.finalDecision  = 'block'
     trace.totalLatencyMs = Date.now() - t0
@@ -131,13 +150,9 @@ async function main() {
     const label     = reviewMode === 'adversarial' ? 'Adversarial Review' : 'Code Review'
 
     block([
-      `## Post-turn ${label} (Gemini → Codex)`,
+      `## Post-turn ${label} (Codex)`,
       `Files reviewed: ${fileNames}`,
       '',
-      '### Gemini Summary',
-      geminiSummary,
-      '',
-      `### Codex ${label}`,
       codexResult,
       '',
       '---',
@@ -145,7 +160,6 @@ async function main() {
     ].join('\n'))
 
   } catch (err) {
-    // Review failed — don't block Claude from finishing
     log(1, `stop-review failed: ${err.message}`)
     trace.finalDecision  = 'approve'
     trace.totalLatencyMs = Date.now() - t0
