@@ -95,7 +95,9 @@ export async function summariseWithGemini(toolName, filePaths, originalPrompt, c
     const content = await readFileSafe(fp)
     fileSections.push(`=== File: ${fp} ===\n\n${content}`)
   }
-  const stdin = fileSections.join('\n\n')
+  // Escape @ to avoid gemini 0.35 interpreting @-prefixed tokens in stdin as
+  // file-path references (a known bug in gemini CLI ≤0.35.3 that causes hangs).
+  const stdin = fileSections.join('\n\n').replace(/@/g, '＠')
 
   log(1, `calling gemini CLI (${config.gemini.bin}) for ${filePaths.length} file(s)`)
 
